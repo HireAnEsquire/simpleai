@@ -25,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Fixed Anthropic structured output schema handling by explicitly normalizing JSON Schema object nodes with `additionalProperties: false`.
 - Added boolean-string coercion for `require_search`, `return_citations`, and `binary_files`.
 - Added Anthropic fallback synthesis pass when a forced web-search turn returns no final text block, preventing downstream JSON parsing failures for structured output.
+- Fixed Django management command argument conflict by removing custom `--no-color` flag (uses Django's built-in global option).
 
 ### Added
 - `README_API_KEYS.md` with provider key acquisition/setup instructions.

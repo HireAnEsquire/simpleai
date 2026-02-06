@@ -24,11 +24,6 @@ class Command(BaseCommand):
             nargs="+",
             help="Optional subset: openai anthropic gemini grok xai perplexity",
         )
-        parser.add_argument(
-            "--no-color",
-            action="store_true",
-            help="Disable ANSI colors in output.",
-        )
 
     def handle(self, *args, **options):
         try:
