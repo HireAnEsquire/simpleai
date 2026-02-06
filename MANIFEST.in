@@ -8,4 +8,5 @@ include requirements.txt
 include ai_settings.example.json
 include django_settings_example.py
 recursive-include simpleai/settings_examples *.json *.py
+recursive-include simpleai/samples *.pdf
 recursive-include tests *.py

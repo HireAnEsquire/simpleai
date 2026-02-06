@@ -1,7 +1,7 @@
 # Until `simpleai` is published to PyPI, install it from GitHub:
 simpleai @ git+https://github.com/blocher/simpleai.git
 
-# Runtime dependencies
+# Runtime dependencies (required for `run_prompt` and smoke-runner scripts)
 pydantic>=2.7,<3.0.0
 openai>=2.17.0,<3.0.0
 anthropic>=0.78.0,<1.0.0

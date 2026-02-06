@@ -233,6 +233,59 @@ pytest
 
 The test suite is built to run offline by mocking provider SDK clients.
 
+## Manual Provider Smoke Runner
+
+This repo includes a manual smoke runner that executes the same resume+search+citations prompt across all providers and prints:
+- per-provider output
+- per-provider citations
+- final summary with:
+  - green `SUCCESS`
+  - red `FAILED`
+  - yellow `API KEY NOT SET`
+
+Definition of success in this runner:
+- no exception
+- structured result validates to `JobHistory`
+- citations list is non-empty
+
+### Standalone Python script
+
+```bash
+python /Users/benjaminlocher/projects/simpleai/scripts/run_provider_smoke.py
+```
+
+If `--file` is omitted, the runner looks in this order:
+- bundled package sample: `simpleai/samples/functionalsample.pdf` (works from installed package, including Django projects)
+- `/Users/benjaminlocher/hae/api/functionalsample.pdf`
+- current working directory: `./functionalsample.pdf`
+- repo root: `/Users/benjaminlocher/projects/simpleai/functionalsample.pdf`
+
+Optional args:
+
+```bash
+python /Users/benjaminlocher/projects/simpleai/scripts/run_provider_smoke.py \
+  --file /Users/benjaminlocher/hae/api/functionalsample.pdf \
+  --providers openai anthropic gemini grok perplexity \
+  --settings-file /path/to/ai_settings.json
+```
+
+### Django management command
+
+If `simpleai` is in `INSTALLED_APPS`, run:
+
+```bash
+python manage.py run_provider_smoke
+```
+
+Optional args:
+
+```bash
+python manage.py run_provider_smoke \
+  --file /Users/benjaminlocher/hae/api/functionalsample.pdf \
+  --providers openai anthropic gemini grok perplexity \
+  --settings-file /path/to/ai_settings.json
+```
+
 ## Packaging / PyPI
 
 This repo includes required packaging files:

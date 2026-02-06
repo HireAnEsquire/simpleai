@@ -61,6 +61,7 @@ simpleai = [
   "py.typed",
   "settings_examples/*.json",
   "settings_examples/*.py",
+  "samples/*.pdf",
 ]
 
 [tool.pytest.ini_options]

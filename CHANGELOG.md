@@ -29,6 +29,11 @@ All notable changes to this project will be documented in this file.
 ### Added
 - `README_API_KEYS.md` with provider key acquisition/setup instructions.
 - `README_PYPI.md` with build/publish steps for PyPI.
+- Manual cross-provider smoke runner module at `simpleai/provider_smoke.py`.
+- Standalone script at `scripts/run_provider_smoke.py` for non-Django smoke runs.
+- Django management command `run_provider_smoke` for in-project smoke runs.
+- Smoke runner tests in `tests/test_provider_smoke.py`.
+- Bundled sample resume file at `simpleai/samples/functionalsample.pdf` so smoke runs work from installed packages.
 
 ## [0.1.0] - 2026-02-06
 
