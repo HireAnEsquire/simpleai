@@ -25,9 +25,11 @@ All notable changes to this project will be documented in this file.
 - Fixed Anthropic structured output schema handling by explicitly normalizing JSON Schema object nodes with `additionalProperties: false`.
 - Hardened provider schema compatibility for structured outputs:
   - OpenAI: enforce closed-object schemas (`additionalProperties: false`) for strict JSON schema mode.
+  - OpenAI: ensure each object schema `required` includes all property keys and represent optional fields as nullable for strict mode compliance.
   - Anthropic: strip unsupported numeric/array constraints (`maxItems`, `minItems`, etc.) from output schemas.
   - Perplexity: use compatible `response_format` shape and enforce closed-object schemas.
 - Added Perplexity fallback retry path that removes `response_format` and requests raw JSON when provider rejects schema formatting.
+- Updated Anthropic citation-recovery pass to use compact structured-answer context (instead of full prompt/file text) to reduce rate-limit pressure.
 - Added boolean-string coercion for `require_search`, `return_citations`, and `binary_files`.
 - Added Anthropic fallback synthesis pass when a forced web-search turn returns no final text block, preventing downstream JSON parsing failures for structured output.
 - Fixed Django management command argument conflict by removing custom `--no-color` flag (uses Django's built-in global option).

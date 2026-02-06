@@ -213,10 +213,21 @@ class AnthropicAdapter(BaseAdapter):
             # Anthropic output schemas can omit citation blocks when output_config is active.
             # If citations were requested but absent, issue a search-only pass to collect them.
             if return_citations and require_search and output_format is not None and not citations:
+                structured_preview = text.strip()[:4000] if text else ""
+                citation_prompt = (
+                    "Use web search and return citations supporting this structured answer. "
+                    "Prefer official sources and include company homepages when relevant.\n\n"
+                    f"Structured answer:\n{structured_preview}"
+                )
                 citation_payload: dict[str, Any] = {
                     "model": model,
                     "max_tokens": int(self.provider_settings.get("max_tokens", 4096)),
-                    "messages": self._build_messages(prompt),
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": citation_prompt}],
+                        }
+                    ],
                     "tools": [
                         {
                             "name": "web_search",
