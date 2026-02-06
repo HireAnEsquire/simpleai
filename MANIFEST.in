@@ -1,0 +1,11 @@
+include README.md
+include README_API_KEYS.md
+include README_PYPI.md
+include CHANGELOG.md
+include LICENSE
+include AGENTS.md
+include requirements.txt
+include ai_settings.example.json
+include django_settings_example.py
+recursive-include simpleai/settings_examples *.json *.py
+recursive-include tests *.py

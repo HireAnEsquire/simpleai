@@ -1,0 +1,338 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+from pydantic import BaseModel
+
+from simpleai.adapters.anthropic_adapter import AnthropicAdapter
+from simpleai.adapters.gemini_adapter import GeminiAdapter
+from simpleai.adapters.grok_adapter import GrokAdapter
+from simpleai.adapters.openai_adapter import OpenAIAdapter
+from simpleai.adapters.perplexity_adapter import PerplexityAdapter
+
+
+class OutputModel(BaseModel):
+    value: int
+
+
+def test_openai_adapter_payload_and_citations(tmp_path: Path) -> None:
+    upload_file = tmp_path / "data.txt"
+    upload_file.write_text("hello", encoding="utf-8")
+
+    class FakeOpenAIResponse:
+        output_text = "ok"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "ok",
+                                "annotations": [
+                                    {
+                                        "type": "url_citation",
+                                        "url": "https://example.com",
+                                        "title": "Example",
+                                        "start_index": 0,
+                                        "end_index": 2,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+
+    class FakeFiles:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def create(self, file, purpose: str):
+            self.calls.append((purpose, bool(file.read())))
+            file.seek(0)
+            return SimpleNamespace(id="file-1")
+
+    class FakeResponses:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def create(self, **kwargs):
+            self.payload = kwargs
+            return FakeOpenAIResponse()
+
+    fake_files = FakeFiles()
+    fake_responses = FakeResponses()
+
+    adapter = OpenAIAdapter({"api_key": "sk-test"})
+    adapter.client = SimpleNamespace(files=fake_files, responses=fake_responses)
+
+    response = adapter.run(
+        prompt="hello",
+        model="gpt-5",
+        require_search=True,
+        return_citations=True,
+        files=[upload_file],
+        output_format=OutputModel,
+        adapter_options={"temperature": 0.2},
+    )
+
+    assert response.text == "ok"
+    assert response.citations[0].url == "https://example.com"
+    assert fake_responses.payload["tools"] == [{"type": "web_search_preview"}]
+    assert fake_responses.payload["text"]["format"]["type"] == "json_schema"
+    assert fake_responses.payload["temperature"] == 0.2
+
+
+def test_anthropic_adapter_payload_and_citations() -> None:
+    class FakeAnthropicResponse:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "done",
+                        "citations": [
+                            {
+                                "url": "https://claude.ai",
+                                "title": "Claude",
+                                "cited_text": "reference",
+                            }
+                        ],
+                    }
+                ]
+            }
+
+    class FakeMessages:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def create(self, **kwargs):
+            self.payload = kwargs
+            return FakeAnthropicResponse()
+
+    fake_messages = FakeMessages()
+
+    adapter = AnthropicAdapter({"api_key": "test", "max_tokens": 100})
+    adapter.client = SimpleNamespace(messages=fake_messages)
+
+    response = adapter.run(
+        prompt=["hello", "world"],
+        model="claude-opus-4-1-20250805",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=OutputModel,
+        adapter_options={"temperature": 0.1},
+    )
+
+    assert response.text == "done"
+    assert response.citations[0].url == "https://claude.ai"
+    assert fake_messages.payload["tools"][0]["type"] == "web_search_20250305"
+    assert fake_messages.payload["output_config"]["format"]["type"] == "json_schema"
+    assert fake_messages.payload["temperature"] == 0.1
+
+
+def test_gemini_adapter_payload_and_citations(tmp_path: Path) -> None:
+    upload_file = tmp_path / "data.txt"
+    upload_file.write_text("hello", encoding="utf-8")
+
+    class FakeGeminiResponse:
+        text = "gemini answer"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "candidates": [
+                    {
+                        "grounding_metadata": {
+                            "grounding_chunks": [
+                                {
+                                    "web": {
+                                        "uri": "https://gemini.example",
+                                        "title": "Gemini Source",
+                                        "domain": "gemini.example",
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    class FakeModels:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def generate_content(self, **kwargs):
+            self.payload = kwargs
+            return FakeGeminiResponse()
+
+    class FakeUploadedFile:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class FakeFiles:
+        def upload(self, file: str):
+            return FakeUploadedFile(file)
+
+    fake_models = FakeModels()
+
+    adapter = GeminiAdapter({"api_key": "test", "max_output_tokens": 128})
+    adapter.client = SimpleNamespace(models=fake_models, files=FakeFiles())
+
+    response = adapter.run(
+        prompt="hello",
+        model="gemini-2.5-pro",
+        require_search=True,
+        return_citations=True,
+        files=[upload_file],
+        output_format=OutputModel,
+        adapter_options={"temperature": 0.3},
+    )
+
+    assert response.text == "gemini answer"
+    assert response.citations[0].url == "https://gemini.example"
+    assert fake_models.payload["model"] == "gemini-2.5-pro"
+
+
+def test_grok_adapter_payload_and_citations(tmp_path: Path) -> None:
+    upload_file = tmp_path / "data.txt"
+    upload_file.write_text("hello", encoding="utf-8")
+
+    class FakeInlineCitation:
+        def __init__(self) -> None:
+            self.id = "1"
+            self.start_index = 0
+            self.end_index = 5
+            self.web_citation = SimpleNamespace(url="https://grok.example")
+
+        def HasField(self, field: str) -> bool:
+            return field == "web_citation"
+
+    class FakeGrokResponse:
+        def __init__(self) -> None:
+            self.content = "grok answer"
+            self.citations = ["https://grok.example"]
+            self.inline_citations = [FakeInlineCitation()]
+
+    class FakeChatSession:
+        def sample(self):
+            return FakeGrokResponse()
+
+    class FakeChatClient:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def create(self, **kwargs):
+            self.payload = kwargs
+            return FakeChatSession()
+
+    class FakeFilesClient:
+        def upload(self, file_path: str):
+            return SimpleNamespace(id=f"file::{file_path}")
+
+    class FakeSearchParameters:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeChatHelpers:
+        @staticmethod
+        def file(file_id: str):
+            return f"file:{file_id}"
+
+        @staticmethod
+        def user(*parts):
+            return {"role": "user", "parts": list(parts)}
+
+    fake_chat = FakeChatClient()
+
+    adapter = GrokAdapter({"api_key": "test", "max_tokens": 256})
+    adapter.client = SimpleNamespace(chat=fake_chat, files=FakeFilesClient())
+    adapter.chat_helpers = FakeChatHelpers()
+    adapter.SearchParameters = FakeSearchParameters
+
+    response = adapter.run(
+        prompt="hello",
+        model="grok-4-latest",
+        require_search=True,
+        return_citations=True,
+        files=[upload_file],
+        output_format=OutputModel,
+        adapter_options={"temperature": 0.4},
+    )
+
+    assert response.text == "grok answer"
+    assert response.citations[0].source == "https://grok.example"
+    assert fake_chat.payload["model"] == "grok-4-latest"
+    assert fake_chat.payload["temperature"] == 0.4
+
+
+def test_perplexity_adapter_payload_and_citations() -> None:
+    class FakePerplexityResponse:
+        output_text = "perplexity answer"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "perplexity answer",
+                                "annotations": [
+                                    {
+                                        "url": "https://pplx.example",
+                                        "title": "PPLX",
+                                        "start_index": 0,
+                                        "end_index": 4,
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "search_results",
+                        "results": [
+                            {
+                                "url": "https://pplx-search.example",
+                                "title": "Search",
+                                "source": "web",
+                                "snippet": "snippet",
+                            }
+                        ],
+                    },
+                ]
+            }
+
+    class FakeResponses:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def create(self, **kwargs):
+            self.payload = kwargs
+            return FakePerplexityResponse()
+
+    fake_responses = FakeResponses()
+
+    adapter = PerplexityAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(responses=fake_responses)
+
+    response = adapter.run(
+        prompt="hello",
+        model="sonar-pro",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=OutputModel,
+        adapter_options={"reasoning": {"effort": "low"}},
+    )
+
+    assert response.text == "perplexity answer"
+    assert len(response.citations) == 2
+    assert fake_responses.payload["preset"] == "sonar-pro"
+    assert fake_responses.payload["tools"] == [{"type": "web_search"}]
