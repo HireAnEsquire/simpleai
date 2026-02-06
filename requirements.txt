@@ -2,19 +2,19 @@
 simpleai @ git+https://github.com/blocher/simpleai.git
 
 # Runtime dependencies
-pydantic>=2.7
-openai>=2.17.0
-anthropic>=0.78.0
-google-genai>=1.62.0
-xai-sdk>=1.6.1
-perplexityai>=0.27.0
-pypdf>=6.1.1
-python-docx>=1.2.0
-striprtf>=0.0.29
+pydantic>=2.7,<3.0.0
+openai>=2.17.0,<3.0.0
+anthropic>=0.78.0,<1.0.0
+google-genai>=1.62.0,<2.0.0
+xai-sdk>=1.6.1,<2.0.0
+perplexityai>=0.27.0,<1.0.0
+pypdf>=6.1.1,<7.0.0
+python-docx>=1.2.0,<2.0.0
+striprtf>=0.0.29,<1.0.0
 
 # Django integration
-Django>=4.2
+Django>=4.2,<5.0.0
 
 # Test dependencies
-pytest>=8.4
-pytest-cov>=6.2
+pytest>=8.4,<9.0.0
+pytest-cov>=6.2,<7.0.0

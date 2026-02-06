@@ -334,5 +334,38 @@ def test_perplexity_adapter_payload_and_citations() -> None:
 
     assert response.text == "perplexity answer"
     assert len(response.citations) == 2
-    assert fake_responses.payload["preset"] == "sonar-pro"
+    assert fake_responses.payload["preset"] == "pro-search"
     assert fake_responses.payload["tools"] == [{"type": "web_search"}]
+
+
+def test_perplexity_adapter_prefixes_provider_for_raw_model() -> None:
+    class FakePerplexityResponse:
+        output_text = "ok"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {"output": []}
+
+    class FakeResponses:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def create(self, **kwargs):
+            self.payload = kwargs
+            return FakePerplexityResponse()
+
+    fake_responses = FakeResponses()
+
+    adapter = PerplexityAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(responses=fake_responses)
+
+    adapter.run(
+        prompt="hello",
+        model="gpt-5.2",
+        require_search=False,
+        return_citations=False,
+        files=None,
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert fake_responses.payload["model"] == "openai/gpt-5.2"

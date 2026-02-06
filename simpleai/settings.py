@@ -43,7 +43,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         },
         "perplexity": {
             "api_key": None,
-            "default_model": "sonar-deep-research",
+            "default_model": "deep-research",
             "max_output_tokens": 4096,
         },
     },
@@ -54,12 +54,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
 }
 
-PROVIDER_ENV_VARS = {
-    "gemini": "GEMINI_API_KEY",
-    "claude": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "grok": "XAI_API_KEY",
-    "perplexity": "PERPLEXITY_API_KEY",
+PROVIDER_ENV_VARS: dict[str, tuple[str, ...]] = {
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "claude": ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"),
+    "openai": ("OPENAI_API_KEY",),
+    "grok": ("XAI_API_KEY", "GROK_API_KEY"),
+    "perplexity": ("PERPLEXITY_API_KEY", "PPLX_API_KEY"),
 }
 
 _PROVIDER_ALIASES = {
@@ -70,6 +70,7 @@ _PROVIDER_ALIASES = {
     "openai": "openai",
     "chatgpt": "openai",
     "grok": "grok",
+    "xai": "grok",
     "perplexity": "perplexity",
     "perplexityai": "perplexity",
 }
@@ -222,13 +223,18 @@ def get_provider_api_key(settings: dict[str, Any], provider: str) -> str | None:
         if configured:
             return str(configured)
 
-    env_var = PROVIDER_ENV_VARS.get(provider)
-    if env_var:
+    for env_var in PROVIDER_ENV_VARS.get(provider, ()):
         value = os.getenv(env_var)
         if value:
             return value
 
     return None
+
+
+def expected_provider_env_vars(provider: str) -> tuple[str, ...]:
+    """Return accepted environment variable names for a provider."""
+
+    return PROVIDER_ENV_VARS.get(provider, ())
 
 
 

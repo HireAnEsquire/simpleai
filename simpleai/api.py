@@ -13,7 +13,7 @@ from .adapters.logging_adapter import PromptLogger
 from .exceptions import ProviderError, SettingsError
 from .files import collect_file_paths, extract_text_from_files
 from .model_registry import resolve_provider_and_model
-from .settings import get_provider_api_key, load_settings
+from .settings import expected_provider_env_vars, get_provider_api_key, load_settings
 from .types import PromptInput
 from .utils import coerce_output
 
@@ -107,6 +107,14 @@ def run_prompt(
     if provider_settings.get("api_key") is None:
         provider_settings = dict(provider_settings)
         provider_settings["api_key"] = get_provider_api_key(settings, provider)
+
+    if not provider_settings.get("api_key"):
+        env_vars = expected_provider_env_vars(provider)
+        env_hint = ", ".join(env_vars) if env_vars else "provider-specific env var"
+        raise SettingsError(
+            f"Missing API key for provider '{provider}'. "
+            f"Set providers.{provider}.api_key or one of: {env_hint}."
+        )
 
     adapter = get_adapter(provider, provider_settings)
 

@@ -43,6 +43,10 @@ Notes:
 2. Generate an API key.
 3. Set `XAI_API_KEY` or place it in settings.
 
+Accepted env vars in this library: `XAI_API_KEY`, `GROK_API_KEY`.
+
+Accepted provider aliases in `run_prompt(model=...)`: `grok`, `xai`.
+
 Docs:
 - [xAI API key docs](https://docs.x.ai/docs/overview/api-key)
 
@@ -51,6 +55,8 @@ Docs:
 1. Create/sign in to Perplexity API dashboard.
 2. Create an API key.
 3. Set `PERPLEXITY_API_KEY` or place it in settings.
+
+Accepted env vars in this library: `PERPLEXITY_API_KEY`, `PPLX_API_KEY`.
 
 Docs:
 - [Perplexity quickstart](https://docs.perplexity.ai/getting-started/quickstart)

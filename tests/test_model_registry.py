@@ -10,7 +10,7 @@ BASE_SETTINGS = {
         "openai": {"default_model": "gpt-5.2", "api_key": "sk-test"},
         "claude": {"default_model": "claude-opus-4-6", "api_key": None},
         "grok": {"default_model": "grok-4-latest", "api_key": None},
-        "perplexity": {"default_model": "sonar-deep-research", "api_key": None},
+        "perplexity": {"default_model": "deep-research", "api_key": None},
     },
 }
 
@@ -19,6 +19,12 @@ def test_resolve_provider_alias_uses_default_model() -> None:
     provider, model = resolve_provider_and_model(BASE_SETTINGS, "chatgpt")
     assert provider == "openai"
     assert model == "gpt-5.2"
+
+
+def test_resolve_xai_alias_uses_grok_default_model() -> None:
+    provider, model = resolve_provider_and_model(BASE_SETTINGS, "xai")
+    assert provider == "grok"
+    assert model == "grok-4-latest"
 
 
 def test_resolve_known_model_mapping() -> None:

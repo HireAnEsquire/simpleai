@@ -17,6 +17,18 @@ class PerplexityAdapter(BaseAdapter):
     provider_name = "perplexity"
     supports_binary_files = False
 
+    _PRESET_ALIASES = {
+        "fast-search": "fast-search",
+        "pro-search": "pro-search",
+        "deep-research": "deep-research",
+        # Backward-compatible aliases from older Sonar naming.
+        "sonar": "fast-search",
+        "sonar-pro": "pro-search",
+        "sonar-reasoning": "pro-search",
+        "sonar-reasoning-pro": "deep-research",
+        "sonar-deep-research": "deep-research",
+    }
+
     def __init__(self, provider_settings: dict[str, Any]) -> None:
         super().__init__(provider_settings)
 
@@ -42,6 +54,32 @@ class PerplexityAdapter(BaseAdapter):
         if not messages:
             return ""
         return messages
+
+    def _resolve_model_target(self, model: str) -> dict[str, str]:
+        normalized = model.strip()
+        lowered = normalized.lower()
+
+        preset = self._PRESET_ALIASES.get(lowered)
+        if preset:
+            return {"preset": preset}
+
+        # Responses API model names are provider/model.
+        if "/" in normalized:
+            return {"model": normalized}
+
+        # Heuristic provider prefixing for common raw model names.
+        if lowered.startswith(("gpt-", "o1", "o3", "o4")):
+            return {"model": f"openai/{normalized}"}
+        if lowered.startswith("claude"):
+            return {"model": f"anthropic/{normalized}"}
+        if lowered.startswith("gemini"):
+            return {"model": f"google/{normalized}"}
+        if lowered.startswith("grok"):
+            return {"model": f"xai/{normalized}"}
+        if lowered.startswith("sonar"):
+            return {"model": f"perplexity/{normalized}"}
+
+        return {"model": normalized}
 
     def _extract_citations(self, response_dict: dict[str, Any]) -> list[Citation]:
         citations: list[Citation] = []
@@ -97,11 +135,7 @@ class PerplexityAdapter(BaseAdapter):
                 "input": self._build_input(prompt),
             }
 
-            # In Perplexity Responses API, Sonar family names are "preset" values.
-            if "/" in model:
-                payload["model"] = model
-            else:
-                payload["preset"] = model
+            payload.update(self._resolve_model_target(model))
 
             if require_search:
                 payload["tools"] = [{"type": "web_search"}]

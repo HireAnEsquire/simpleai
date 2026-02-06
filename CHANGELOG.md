@@ -9,9 +9,13 @@ All notable changes to this project will be documented in this file.
   - OpenAI: `gpt-5.2`
   - Gemini: `gemini-3-pro-preview`
   - Claude: `claude-opus-4-6`
+  - Perplexity: `deep-research` (Responses API preset)
 - Expanded model registry with newer/preview model IDs (OpenAI, Gemini, Claude).
 - Extended non-Django settings discovery for `ai_settings.json` across common app-root locations.
 - Updated install docs for GitHub-based installation before PyPI release.
+- Fixed Perplexity adapter model routing by mapping legacy Sonar model names to valid Responses API presets and adding provider-prefix heuristics for raw model names.
+- Added API-key preflight validation in `run_prompt` with clearer `SettingsError` messages, and added env-var aliases (`GROK_API_KEY`, `PPLX_API_KEY`, etc.).
+- Added `xai` as a provider alias equivalent to `grok` (including settings normalization and model alias resolution).
 
 ### Added
 - `README_API_KEYS.md` with provider key acquisition/setup instructions.

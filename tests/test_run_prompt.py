@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
 from simpleai.api import run_prompt
+from simpleai.exceptions import SettingsError
 from simpleai.types import AdapterResponse, Citation
 
 
@@ -119,3 +121,29 @@ def test_run_prompt_merges_provider_kwargs(monkeypatch) -> None:
     options = adapter.last_kwargs["adapter_options"]
     assert options["top_p"] == 0.8
     assert options["temperature"] == 0.2
+
+
+def test_run_prompt_missing_provider_key_raises_settings_error(monkeypatch) -> None:
+    settings = {
+        "defaults": ["grok"],
+        "providers": {
+            "grok": {
+                "default_model": "grok-4-latest",
+                "api_key": None,
+            }
+        },
+        "logging": {"enabled": False},
+    }
+
+    monkeypatch.setattr("simpleai.api.load_settings", lambda settings_file=None: settings)
+    monkeypatch.setattr("simpleai.api.resolve_provider_and_model", lambda settings, model: ("grok", "grok-4-latest"))
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("GROK_API_KEY", raising=False)
+
+    with pytest.raises(SettingsError) as exc:
+        run_prompt("hello", model="grok")
+
+    message = str(exc.value)
+    assert "Missing API key for provider 'grok'" in message
+    assert "XAI_API_KEY" in message
+    assert "GROK_API_KEY" in message

@@ -37,6 +37,18 @@ From local source with `uv`:
 uv pip install -e .
 ```
 
+Add to your own project's `requirements.txt` (while this repo is still the source):
+
+```txt
+simpleai @ git+https://github.com/blocher/simpleai.git@main
+```
+
+Optional: pin to an exact commit for reproducible installs:
+
+```txt
+simpleai @ git+https://github.com/blocher/simpleai.git@<commit-sha>
+```
+
 ## Public API
 
 ```python
@@ -70,7 +82,7 @@ def run_prompt(
 - `file` / `files`: one file path or multiple file paths.
 - `binary_files` (default `True`): upload binary attachments when adapter supports them; otherwise text extraction fallback.
 - `model`: provider alias or model name.
-  - Provider aliases: `google`, `gemini`, `anthropic`, `claude`, `openai`, `chatgpt`, `grok`, `perplexityai`, `perplexity`.
+  - Provider aliases: `google`, `gemini`, `anthropic`, `claude`, `openai`, `chatgpt`, `grok`, `xai`, `perplexityai`, `perplexity`.
   - If provider alias is passed, provider default model from settings is used.
   - If omitted, first provider in `defaults` with credentials is selected.
 - `output_format`: a Pydantic model class for structured output validation.
@@ -127,7 +139,7 @@ SIMPLEAI = {
         "openai": {"api_key": "...", "default_model": "gpt-5.2"},
         "claude": {"api_key": "...", "default_model": "claude-opus-4-6"},
         "grok": {"api_key": "...", "default_model": "grok-4-latest"},
-        "perplexity": {"api_key": "...", "default_model": "sonar-deep-research"},
+        "perplexity": {"api_key": "...", "default_model": "deep-research"},
     },
     "logging": {
         "enabled": True,
@@ -236,6 +248,6 @@ Current default models in bundled settings:
 - OpenAI: `gpt-5.2`
 - Claude: `claude-opus-4-6`
 - Grok: `grok-4-latest`
-- Perplexity: `sonar-deep-research`
+- Perplexity: `deep-research`
 
 These can be changed in your settings file at any time.

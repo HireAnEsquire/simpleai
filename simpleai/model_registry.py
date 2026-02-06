@@ -86,6 +86,9 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "grok-3-mini-fast-latest": "grok",
     "grok-code-fast-1": "grok",
     # Perplexity
+    "fast-search": "perplexity",
+    "pro-search": "perplexity",
+    "deep-research": "perplexity",
     "sonar": "perplexity",
     "sonar-pro": "perplexity",
     "sonar-reasoning": "perplexity",

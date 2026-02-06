@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from simpleai.settings import load_settings
+from simpleai.settings import get_provider_api_key, load_settings
 
 
 def test_load_settings_from_json_file(tmp_path: Path) -> None:
@@ -15,6 +15,7 @@ def test_load_settings_from_json_file(tmp_path: Path) -> None:
                 "providers": {
                     "chatgpt": {"default_model": "gpt-5-mini"},
                     "anthropic": {"default_model": "claude-sonnet-4-5-20250929"},
+                    "xai": {"default_model": "grok-4-latest"},
                 },
                 "logging": {"enabled": True},
             }
@@ -27,6 +28,7 @@ def test_load_settings_from_json_file(tmp_path: Path) -> None:
     assert settings["defaults"][:2] == ["openai", "gemini"]
     assert settings["providers"]["openai"]["default_model"] == "gpt-5-mini"
     assert settings["providers"]["claude"]["default_model"] == "claude-sonnet-4-5-20250929"
+    assert settings["providers"]["grok"]["default_model"] == "grok-4-latest"
     assert settings["logging"]["enabled"] is True
 
 
@@ -80,3 +82,11 @@ def test_load_settings_finds_app_root_json(tmp_path: Path, monkeypatch) -> None:
     settings = load_settings()
 
     assert settings["providers"]["openai"]["default_model"] == "gpt-5.2"
+
+
+def test_get_provider_api_key_supports_grok_alias_env_var(monkeypatch) -> None:
+    settings = {"providers": {"grok": {"api_key": None}}}
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setenv("GROK_API_KEY", "grok-test-key")
+
+    assert get_provider_api_key(settings, "grok") == "grok-test-key"
