@@ -108,12 +108,18 @@ def _make_nullable(schema: dict[str, Any]) -> dict[str, Any]:
             node.pop("oneOf", None)
         return node
 
+    # OpenAI Structured Outputs do not support type: [type, "null"].
+    # They require anyOf: [{type: type}, {type: "null"}].
     if isinstance(node_type, str):
-        node["type"] = [node_type, "null"]
-        return node
+        new_node = deepcopy(node)
+        new_node.pop("type", None)
+        return {"anyOf": [{"type": node_type}, {"type": "null"}], **new_node}
+
     if isinstance(node_type, list):
-        node["type"] = [item for item in node_type if item != "null"] + ["null"]
-        return node
+        new_node = deepcopy(node)
+        new_node.pop("type", None)
+        types = [{"type": t} for t in node_type if t != "null"] + [{"type": "null"}]
+        return {"anyOf": types, **new_node}
 
     # No explicit type/union: wrap in anyOf.
     return {"anyOf": [node, {"type": "null"}]}
@@ -130,14 +136,24 @@ def enforce_openai_required_all_properties(schema: dict[str, Any]) -> dict[str, 
             is_object = node_type == "object" or (
                 isinstance(node_type, list) and "object" in node_type
             )
-            if is_object and isinstance(node.get("properties"), dict):
-                properties = node["properties"]
-                required = set(node.get("required") or [])
-                all_keys = list(properties.keys())
-                for key in all_keys:
-                    if key not in required and isinstance(properties.get(key), dict):
-                        properties[key] = _make_nullable(properties[key])
-                node["required"] = all_keys
+            looks_objectish = any(
+                key in node
+                for key in ("properties", "required", "patternProperties", "additionalProperties")
+            )
+
+            if is_object or looks_objectish:
+                if "properties" in node and isinstance(node["properties"], dict):
+                    properties = node["properties"]
+                    required = set(node.get("required") or [])
+                    all_keys = list(properties.keys())
+                    for key in all_keys:
+                        if key not in required and isinstance(properties.get(key), dict):
+                            properties[key] = _make_nullable(properties[key])
+                    node["required"] = all_keys
+                else:
+                    # Even if no properties are present, OpenAI wants 'required' array.
+                    if "required" not in node:
+                        node["required"] = []
 
             for value in node.values():
                 walk(value)
@@ -154,8 +170,12 @@ def enforce_openai_required_all_properties(schema: dict[str, Any]) -> dict[str, 
 def openai_response_schema(output_format: type[BaseModel]) -> dict[str, Any]:
     """Build strict-schema payload for OpenAI Responses API."""
 
-    schema = enforce_closed_objects(output_model_schema(output_format))
-    return enforce_openai_required_all_properties(schema)
+    schema = output_model_schema(output_format)
+    schema = enforce_closed_objects(schema)
+    schema = enforce_openai_required_all_properties(schema)
+    # OpenAI Structured Outputs (strict mode) does not support 'default' or 'title'.
+    # We strip these LAST to ensure we catch everything.
+    return strip_schema_keywords(schema, ["default", "title"])
 
 
 def anthropic_response_schema(output_format: type[BaseModel]) -> dict[str, Any]:
