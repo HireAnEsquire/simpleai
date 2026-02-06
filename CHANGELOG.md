@@ -2,63 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-
-### Changed
-- Updated bundled default models to latest documented options as of 2026-02-06:
-  - OpenAI: `gpt-5.2`
-  - Gemini: `gemini-3-pro-preview`
-  - Claude: `claude-opus-4-6`
-  - Perplexity: `deep-research` (Responses API preset)
-- Expanded model registry with newer/preview model IDs (OpenAI, Gemini, Claude).
-- Extended non-Django settings discovery for `ai_settings.json` across common app-root locations.
-- Updated install docs for GitHub-based installation before PyPI release.
-- Fixed Perplexity adapter model routing by mapping legacy Sonar model names to valid Responses API presets and adding provider-prefix heuristics for raw model names.
-- Added API-key preflight validation in `run_prompt` with clearer `SettingsError` messages, and added env-var aliases (`GROK_API_KEY`, `PPLX_API_KEY`, etc.).
-- Added `xai` as a provider alias equivalent to `grok` (including settings normalization and model alias resolution).
-- Updated `run_prompt` so `return_citations=True` always forces `require_search=True`, even when `require_search=False` is passed.
-- Updated citation/search implementations across adapters:
-  - OpenAI: switched to `web_search` tool with required tool usage and source extraction.
-  - Anthropic: forced web search tool usage for grounded responses and improved citation parsing.
-  - Gemini: improved grounding/citation extraction from grounding metadata and citation metadata.
-  - Grok: migrated from deprecated live search parameters to xAI Agent Tools `web_search`.
-- Fixed Anthropic structured output schema handling by explicitly normalizing JSON Schema object nodes with `additionalProperties: false`.
-- Hardened provider schema compatibility for structured outputs:
-  - OpenAI: enforce closed-object schemas (`additionalProperties: false`) for strict JSON schema mode.
-  - OpenAI: ensure each object schema `required` includes all property keys and represent optional fields as nullable for strict mode compliance.
-  - Anthropic: strip unsupported numeric/array constraints (`maxItems`, `minItems`, etc.) from output schemas.
-  - Perplexity: use compatible `response_format` shape and enforce closed-object schemas.
-- Added Perplexity fallback retry path that removes `response_format` and requests raw JSON when provider rejects schema formatting.
-- Updated Anthropic citation-recovery pass to use compact structured-answer context (instead of full prompt/file text) to reduce rate-limit pressure.
-- Added boolean-string coercion for `require_search`, `return_citations`, and `binary_files`.
-- Added Anthropic fallback synthesis pass when a forced web-search turn returns no final text block, preventing downstream JSON parsing failures for structured output.
-- Fixed Django management command argument conflict by removing custom `--no-color` flag (uses Django's built-in global option).
-- Updated smoke runner output to display per-provider file handling path (`binary upload` vs `parsed text`).
-- Added catch-all `SimpleAIException` surface for `run_prompt`; unexpected internal errors are now wrapped and retain `original_exception` for debugging.
-
-### Added
-- `README_API_KEYS.md` with provider key acquisition/setup instructions.
-- `README_PYPI.md` with build/publish steps for PyPI.
-- Manual cross-provider smoke runner module at `simpleai/provider_smoke.py`.
-- Standalone script at `scripts/run_provider_smoke.py` for non-Django smoke runs.
-- Django management command `run_provider_smoke` for in-project smoke runs.
-- Smoke runner tests in `tests/test_provider_smoke.py`.
-- Bundled sample resume file at `simpleai/samples/functionalsample.pdf` so smoke runs work from installed packages.
-
 ## [0.1.0] - 2026-02-06
 
 ### Added
-- Initial `simpleai` library release with one public API: `run_prompt`.
-- Provider adapters for OpenAI, Anthropic, Gemini, Grok, and Perplexity.
-- Model/provider resolution with provider aliases, known model map, and heuristic fallback.
-- Django-first settings loading with JSON fallback (`ai_settings.json`).
-- Bundled settings examples for Django and non-Django usage.
-- Binary attachment support with text extraction fallback.
+- Initial `simpleai` release with one public API: `run_prompt`.
+- Provider adapters for OpenAI, Anthropic Claude, Google Gemini, xAI Grok, and Perplexity.
+- Model/provider resolution with aliases and heuristics, including provider aliases such as `chatgpt`, `claude`, `xai`, and `perplexityai`.
+- Search grounding and normalized citations across providers.
+- Structured output support via Pydantic models, with provider-compatible schema handling.
+- File handling with binary upload when supported, plus text-extraction fallback.
 - Text extraction support for `pdf`, `doc`, `docx`, `md`, `txt`, `json`, and `rtf`.
-- Structured output validation via Pydantic models.
-- Normalized cross-provider citation format.
-- Centralized structured logging adapter for call lifecycle and errors.
+- Settings system that loads from Django settings first, then `ai_settings.json` (including common app-root discovery paths).
+- Bundled settings examples for Django and non-Django usage.
+- API-key preflight validation with provider env-var aliases.
+- Centralized logging adapter for prompt lifecycle, payload metadata, timing, and error capture.
+- Catch-all `SimpleAIException` surface for `run_prompt`, with original exception preserved for debugging.
+- Manual cross-provider smoke runner tooling:
+  - Shared runner module (`simpleai/provider_smoke.py`)
+  - Standalone script (`scripts/run_provider_smoke.py`)
+  - Django management command (`run_provider_smoke`)
+  - Colorized summary and per-provider file-handling mode output (`binary upload` vs `parsed text`)
+  - Bundled sample resume file (`simpleai/samples/functionalsample.pdf`)
+- Documentation set including `README.md`, `README_API_KEYS.md`, and `README_PYPI.md`.
+- Packaging and distribution files for pip/PyPI (`pyproject.toml`, `MANIFEST.in`, `requirements.txt`).
 - Django app integration (`SimpleAIConfig`).
-- Packaging setup for pip/PyPI (`pyproject.toml`, `MANIFEST.in`, `requirements.txt`).
-- Comprehensive test suite compatible with pytest.
+- Test suite compatible with pytest.
 - MIT license and project `.gitignore`.
+
+### Defaults
+- Default provider order: `gemini`, `openai`, `claude`, `grok`, `perplexity`.
+- Default models at release time:
+  - Gemini: `gemini-3-pro-preview`
+  - OpenAI: `gpt-5.2`
+  - Claude: `claude-opus-4-6`
+  - Grok: `grok-4-latest`
+  - Perplexity: `deep-research`
