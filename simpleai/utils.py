@@ -41,7 +41,11 @@ def _extract_candidate_json(text: str) -> str:
     if (stripped.startswith("{") and stripped.endswith("}")) or (
         stripped.startswith("[") and stripped.endswith("]")
     ):
-        return stripped
+        try:
+            json.loads(stripped)
+            return stripped
+        except json.JSONDecodeError:
+            pass  # Fall through to raw_decode path
 
     decoder = json.JSONDecoder()
     for start in range(len(stripped)):

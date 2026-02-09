@@ -19,6 +19,8 @@ env/
 
 # Test / coverage
 .pytest_cache/
+.tox/
+.hypothesis/
 .coverage
 .coverage.*
 htmlcov/
@@ -47,3 +49,7 @@ grep_results_path.txt
 
 # Local settings
 ai_settings.json
+
+#Database files
+*.sqlite3
+*.db

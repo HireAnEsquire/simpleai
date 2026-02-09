@@ -149,7 +149,10 @@ def select_default_provider(settings: dict[str, Any]) -> str:
             return provider
 
     if canonical_defaults:
-        return canonical_defaults[0]
+        raise ModelResolutionError(
+            f"No credentials found for any configured default provider: {canonical_defaults}. "
+             "Set an API key in settings or environment."
+            )
 
     raise ModelResolutionError("No default providers configured.")
 

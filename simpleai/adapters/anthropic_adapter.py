@@ -247,9 +247,11 @@ class AnthropicAdapter(BaseAdapter):
                     if hasattr(citation_response, "model_dump")
                     else {}
                 )
+                existing_keys = {self._citation_key(c) for c in citations}
                 for extra in self._extract_citations(citation_dict):
-                    if self._citation_key(extra) not in {self._citation_key(c) for c in citations}:
+                    if self._citation_key(extra) not in existing_keys:
                         citations.append(extra)
+                        existing_keys.add(self._citation_key(extra))
 
             # If a forced search turn returns only tool blocks (no text), synthesize a final response.
             if not text:
@@ -295,9 +297,11 @@ class AnthropicAdapter(BaseAdapter):
                     )
                     text = self._extract_text(synthesis_dict)
                     if return_citations:
+                        existing_keys = {self._citation_key(c) for c in citations}
                         for extra in self._extract_citations(synthesis_dict):
-                            if self._citation_key(extra) not in {self._citation_key(c) for c in citations}:
+                            if self._citation_key(extra) not in existing_keys:
                                 citations.append(extra)
+                                existing_keys.add(self._citation_key(extra))
 
                     if text:
                         response_dict = synthesis_dict

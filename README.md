@@ -173,7 +173,7 @@ Use `simpleai/settings_examples/django_settings_example.py` for the full templat
 
 ## Credentials
 
-Provider auth is API-key based for normal usage.
+Provider auth is API-key-based for normal usage.
 - OpenAI: API key
 - Anthropic: API key
 - Gemini (Google AI Studio API): API key

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, TypeAlias
 
@@ -24,17 +24,7 @@ class Citation:
     raw: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "provider": self.provider,
-            "url": self.url,
-            "title": self.title,
-            "source": self.source,
-            "snippet": self.snippet,
-            "citation_id": self.citation_id,
-            "start_index": self.start_index,
-            "end_index": self.end_index,
-            "raw": self.raw,
-        }
+        return asdict(self)
 
 
 @dataclass(slots=True)

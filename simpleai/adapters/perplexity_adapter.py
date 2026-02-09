@@ -6,7 +6,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, ClassVar, Sequence
 
 from pydantic import BaseModel
 
@@ -20,7 +20,7 @@ class PerplexityAdapter(BaseAdapter):
     provider_name = "perplexity"
     supports_binary_files = False
 
-    _PRESET_ALIASES = {
+    _PRESET_ALIASES: ClassVar[dict[str, str]] = {
         "fast-search": "fast-search",
         "pro-search": "pro-search",
         "deep-research": "deep-research",

@@ -89,7 +89,7 @@ def extract_text_from_file(path: str | Path) -> str:
 
                 content = textract.process(str(file_path))
                 return content.decode("utf-8", errors="ignore").strip()
-            except Exception:
+            except (ImportError, OSError, RuntimeError):
                 # Fallback when optional doc extractors are unavailable.
                 return file_path.read_bytes().decode("latin-1", errors="ignore").strip()
 

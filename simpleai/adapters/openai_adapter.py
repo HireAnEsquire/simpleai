@@ -23,7 +23,7 @@ class OpenAIAdapter(BaseAdapter):
 
         try:
             from openai import OpenAI
-        except Exception as exc:  # pragma: no cover - dependency missing path
+        except ImportError as exc:  # pragma: no cover - dependency missing path
             raise ProviderError("openai package is required for OpenAIAdapter.") from exc
 
         api_key = provider_settings.get("api_key") or os.getenv("OPENAI_API_KEY")
@@ -199,6 +199,14 @@ class OpenAIAdapter(BaseAdapter):
                 text = "".join(chunks)
 
             citations = self._extract_citations(response_dict) if return_citations else []
+
+            # Clean up uploaded files
+            for file_id in file_ids:
+                try:
+                    self.client.files.delete(file_id)
+                except Exception:
+                    pass  # Best-effort cleanup
+
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 
         except Exception as exc:  # pragma: no cover - network/provider behavior
