@@ -43,7 +43,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         },
         "perplexity": {
             "api_key": None,
-            "default_model": "deep-research",
+            "default_model": "sonar-deep-research",
             "max_output_tokens": 4096,
         },
     },

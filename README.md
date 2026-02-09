@@ -159,7 +159,7 @@ SIMPLEAI = {
         "openai": {"api_key": "...", "default_model": "gpt-5.2"},
         "claude": {"api_key": "...", "default_model": "claude-opus-4-6"},
         "grok": {"api_key": "...", "default_model": "grok-4-latest"},
-        "perplexity": {"api_key": "...", "default_model": "deep-research"},
+        "perplexity": {"api_key": "...", "default_model": "sonar-deep-research"},
     },
     "logging": {
         "enabled": True,
@@ -322,6 +322,6 @@ Current default models in bundled settings:
 - OpenAI: `gpt-5.2`
 - Claude: `claude-opus-4-6`
 - Grok: `grok-4-latest`
-- Perplexity: `deep-research`
+- Perplexity: `sonar-deep-research`
 
 These can be changed in your settings file at any time.

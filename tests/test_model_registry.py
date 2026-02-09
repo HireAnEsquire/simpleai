@@ -10,7 +10,7 @@ BASE_SETTINGS = {
         "openai": {"default_model": "gpt-5.2", "api_key": "sk-test"},
         "claude": {"default_model": "claude-opus-4-6", "api_key": None},
         "grok": {"default_model": "grok-4-latest", "api_key": None},
-        "perplexity": {"default_model": "deep-research", "api_key": None},
+        "perplexity": {"default_model": "sonar-deep-research", "api_key": None},
     },
 }
 

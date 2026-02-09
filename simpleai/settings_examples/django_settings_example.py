@@ -26,7 +26,7 @@ SIMPLEAI = {
         },
         "perplexity": {
             "api_key": "YOUR_PERPLEXITY_API_KEY",
-            "default_model": "deep-research",
+            "default_model": "sonar-deep-research",
             "max_output_tokens": 4096,
         },
     },
