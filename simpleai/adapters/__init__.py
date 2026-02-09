@@ -30,12 +30,12 @@ def get_adapter(provider: str, provider_settings: dict[str, Any]) -> BaseAdapter
     return adapter_cls(provider_settings)
 
 
- __all__ = [
-     "AnthropicAdapter",
-     "BaseAdapter",
-     "GeminiAdapter",
-     "get_adapter",
-     "GrokAdapter",
-     "OpenAIAdapter",
-     "PerplexityAdapter",
- ]
+__all__ = [
+    "AnthropicAdapter",
+    "BaseAdapter",
+    "GeminiAdapter",
+    "get_adapter",
+    "GrokAdapter",
+    "OpenAIAdapter",
+    "PerplexityAdapter",
+]
