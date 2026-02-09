@@ -28,6 +28,9 @@ class GrokAdapter(BaseAdapter):
             raise ProviderError("xai-sdk package is required for GrokAdapter.") from exc
 
         api_key = provider_settings.get("api_key") or os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
+        if not api_key or not str(api_key).strip():
+            raise ProviderError("XAI_API_KEY or GROK_API_KEY is required for GrokAdapter")
+
         self.client = Client(api_key=api_key)
         self.chat_helpers = chat_helpers
         self.xai_tools = xai_tools
@@ -161,7 +164,7 @@ class GrokAdapter(BaseAdapter):
             if require_search:
                 create_kwargs["tools"] = [self.xai_tools.web_search()]
                 create_kwargs["tool_choice"] = "required"
-                create_kwargs["max_turns"] = int(self.provider_settings.get("max_turns", 4))
+                create_kwargs["max_turns"] = int(self.provider_settings.get("max_turns", 12))
 
             if return_citations:
                 include = ["inline_citations"]

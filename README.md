@@ -16,13 +16,13 @@ The package works as a standalone Python library and as an installable Django ap
 From GitHub (recommended until PyPI release):
 
 ```bash
-pip install "simpleai @ git+http://github.com/HireAnEsquire/simpleai.git"
+pip install "simpleai @ git+https://github.com/HireAnEsquire/simpleai.git"
 ```
 
 With `uv`:
 
 ```bash
-uv pip install "simpleai @ git+http://github.com/HireAnEsquire/simpleai.git"
+uv pip install "simpleai @ git+https://github.com/HireAnEsquire/simpleai.git"
 ```
 
 From local source:
@@ -40,13 +40,13 @@ uv pip install -e .
 Add to your own project's `requirements.txt` (while this repo is still the source):
 
 ```txt
-simpleai @ git+http://github.com/HireAnEsquire/simpleai.git@main
+simpleai @ git+https://github.com/HireAnEsquire/simpleai.git@main
 ```
 
 Optional: pin to an exact commit for reproducible installs:
 
 ```txt
-simpleai @ git+http://github.com/HireAnEsquire/simpleai.git@<commit-sha>
+simpleai @ git+https://github.com/HireAnEsquire/simpleai.git@<commit-sha>
 ```
 
 ## Public API

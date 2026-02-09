@@ -3,14 +3,14 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "simpleai"
+name = "haesimpleai"
 version = "0.1.0"
 description = "Unified prompt runner across major generative AI providers."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-  { name = "SimpleAI Contributors" }
+  { name = "Hire an Esquire" }
 ]
 keywords = ["ai", "llm", "django", "openai", "anthropic", "gemini", "grok", "perplexity"]
 classifiers = [
