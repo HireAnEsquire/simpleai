@@ -41,5 +41,9 @@ htmlcov/
 # Logs
 *.log
 
+# Local grep / search output
+grep_results.txt
+grep_results_path.txt
+
 # Local settings
 ai_settings.json
