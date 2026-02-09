@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -21,6 +22,12 @@ from simpleai.schema import (
 from simpleai.types import AdapterResponse, Citation, PromptInput
 
 
+# Default rate limit settings for Tier 1 accounts
+DEFAULT_RATE_LIMIT_DELAY = 2.0  # seconds between API calls
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BASE_DELAY = 60.0  # base delay for exponential backoff on 429
+
+
 class AnthropicAdapter(BaseAdapter):
     provider_name = "claude"
     supports_binary_files = False
@@ -35,6 +42,13 @@ class AnthropicAdapter(BaseAdapter):
 
         api_key = provider_settings.get("api_key") or os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
         self.client = Anthropic(api_key=api_key)
+
+        # Rate limiting configuration
+        self._rate_limit_delay = float(provider_settings.get("rate_limit_delay", DEFAULT_RATE_LIMIT_DELAY))
+        self._max_retries = int(provider_settings.get("max_retries", DEFAULT_MAX_RETRIES))
+        self._retry_base_delay = float(provider_settings.get("retry_base_delay", DEFAULT_RETRY_BASE_DELAY))
+        self._skip_citation_followup = bool(provider_settings.get("skip_citation_followup", False))
+        self._last_request_time: float | None = None
 
     def _build_messages(self, prompt: PromptInput) -> list[dict[str, Any]]:
         if isinstance(prompt, str):
@@ -164,6 +178,47 @@ class AnthropicAdapter(BaseAdapter):
             item.end_index,
         )
 
+    def _wait_for_rate_limit(self) -> None:
+        """Wait if needed to respect rate limits between API calls."""
+        if self._last_request_time is not None and self._rate_limit_delay > 0:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self._rate_limit_delay:
+                time.sleep(self._rate_limit_delay - elapsed)
+
+    def _create_with_retry(self, payload: dict[str, Any]) -> Any:
+        """Make API call with rate limiting and exponential backoff on 429 errors."""
+        from anthropic import RateLimitError
+
+        self._wait_for_rate_limit()
+
+        last_error: Exception | None = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                self._last_request_time = time.time()
+                return self.client.messages.create(**payload)
+            except RateLimitError as exc:
+                last_error = exc
+                if attempt < self._max_retries:
+                    # Exponential backoff: base_delay * 2^attempt
+                    delay = self._retry_base_delay * (2 ** attempt)
+                    # Check if the error message contains a suggested wait time
+                    error_msg = str(exc)
+                    if "retry" in error_msg.lower():
+                        # Try to extract the suggested wait time
+                        import re
+                        match = re.search(r'(\d+(?:\.\d+)?)\s*second', error_msg)
+                        if match:
+                            suggested_delay = float(match.group(1))
+                            delay = max(delay, suggested_delay + 1)  # Add 1 second buffer
+                    time.sleep(delay)
+                else:
+                    raise
+
+        # Should not reach here, but just in case
+        if last_error:
+            raise last_error
+        raise ProviderError("Unexpected error in retry logic")
+
     def run(
         self,
         *,
@@ -204,7 +259,7 @@ class AnthropicAdapter(BaseAdapter):
             if adapter_options:
                 payload.update(adapter_options)
 
-            response = self.client.messages.create(**payload)
+            response = self._create_with_retry(payload)
             response_dict = response.model_dump(mode="json") if hasattr(response, "model_dump") else {}
             text = self._extract_text(response_dict)
 
@@ -212,7 +267,8 @@ class AnthropicAdapter(BaseAdapter):
 
             # Anthropic output schemas can omit citation blocks when output_config is active.
             # If citations were requested but absent, issue a search-only pass to collect them.
-            if return_citations and require_search and output_format is not None and not citations:
+            # Skip this if skip_citation_followup is set (helps with rate limits on Tier 1 accounts).
+            if return_citations and require_search and output_format is not None and not citations and not self._skip_citation_followup:
                 structured_preview = text.strip()[:4000] if text else ""
                 citation_prompt = (
                     "Use web search and return citations supporting this structured answer. "
@@ -241,7 +297,7 @@ class AnthropicAdapter(BaseAdapter):
                     citation_passthrough.pop("output_config", None)
                     citation_payload.update(citation_passthrough)
 
-                citation_response = self.client.messages.create(**citation_payload)
+                citation_response = self._create_with_retry(citation_payload)
                 citation_dict = (
                     citation_response.model_dump(mode="json")
                     if hasattr(citation_response, "model_dump")
@@ -289,7 +345,7 @@ class AnthropicAdapter(BaseAdapter):
                         passthrough.pop("tool_choice", None)
                         synthesis_payload.update(passthrough)
 
-                    synthesis_response = self.client.messages.create(**synthesis_payload)
+                    synthesis_response = self._create_with_retry(synthesis_payload)
                     synthesis_dict = (
                         synthesis_response.model_dump(mode="json")
                         if hasattr(synthesis_response, "model_dump")
