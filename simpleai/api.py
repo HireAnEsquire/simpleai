@@ -55,6 +55,55 @@ def _append_extracted_files_to_prompt(prompt: PromptInput, extracted: Iterable[t
     return prompt_list
 
 
+_LOG_SAFE_KEYS = {
+    "timeout",
+    "retries",
+    "max_tokens",
+    "max_turns",
+    "temperature",
+    "top_p",
+    "top_k",
+    "seed",
+}
+
+_LOG_SENSITIVE_KEYS = {
+    "api_key",
+    "apikey",
+    "api-key",
+    "token",
+    "secret",
+    "access_token",
+    "client_secret",
+    "password",
+    "authorization",
+}
+
+_LOG_SENSITIVE_SUBSTRINGS = (
+    "api_key",
+    "apikey",
+    "token",
+    "secret",
+    "password",
+    "access",
+    "auth",
+)
+
+
+def _sanitize_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in payload.items():
+        key_str = str(key)
+        key_lower = key_str.lower()
+        if key_lower in _LOG_SAFE_KEYS:
+            sanitized[key] = value
+            continue
+        if key_lower in _LOG_SENSITIVE_KEYS or any(part in key_lower for part in _LOG_SENSITIVE_SUBSTRINGS):
+            sanitized[key] = "<REDACTED>"
+            continue
+        sanitized[key] = value
+    return sanitized
+
+
 
 def _build_log_args(
     prompt: PromptInput,
@@ -76,7 +125,7 @@ def _build_log_args(
         "binary_files": binary_files,
         "model": model,
         "output_format": output_format.__name__ if output_format else None,
-        "provider_kwargs": provider_kwargs,
+        "provider_kwargs": _sanitize_dict(provider_kwargs),
     }
 
 
@@ -190,7 +239,7 @@ def run_prompt(
                 "binary_files": binary_files_bool,
                 "adapter_supports_binary": adapter.supports_binary_files,
                 "file_count": len(file_paths),
-                "params": combined_adapter_options,
+                "params": _sanitize_dict(combined_adapter_options),
             },
         )
 
