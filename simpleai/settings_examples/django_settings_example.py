@@ -23,7 +23,7 @@ SIMPLEAI = {
         },
         "grok": {
             "api_key": "YOUR_XAI_API_KEY",
-            "default_model": "grok-4-latest",
+            "default_model": "grok-4-1-fast-reasoning",
             "max_tokens": 8192,
         },
         "perplexity": {

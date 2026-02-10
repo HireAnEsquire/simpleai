@@ -15,7 +15,7 @@ def test_load_settings_from_json_file(tmp_path: Path) -> None:
                 "providers": {
                     "chatgpt": {"default_model": "gpt-5-mini"},
                     "anthropic": {"default_model": "claude-sonnet-4-5-20250929"},
-                    "xai": {"default_model": "grok-4-latest"},
+                    "xai": {"default_model": "grok-4-1-fast-reasoning"},
                 },
                 "logging": {"enabled": True},
             }
@@ -28,7 +28,7 @@ def test_load_settings_from_json_file(tmp_path: Path) -> None:
     assert settings["defaults"][:2] == ["openai", "gemini"]
     assert settings["providers"]["openai"]["default_model"] == "gpt-5-mini"
     assert settings["providers"]["claude"]["default_model"] == "claude-sonnet-4-5-20250929"
-    assert settings["providers"]["grok"]["default_model"] == "grok-4-latest"
+    assert settings["providers"]["grok"]["default_model"] == "grok-4-1-fast-reasoning"
     assert settings["logging"]["enabled"] is True
 
 

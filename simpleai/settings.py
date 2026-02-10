@@ -41,7 +41,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         },
         "grok": {
             "api_key": None,
-            "default_model": "grok-4-latest",
+            "default_model": "grok-4-1-fast-reasoning",
             "max_tokens": 8192,
         },
         "perplexity": {

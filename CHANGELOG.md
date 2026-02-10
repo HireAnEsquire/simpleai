@@ -43,5 +43,5 @@ All notable changes to this project will be documented in this file.
   - Gemini: `gemini-3-pro-preview`
   - OpenAI: `gpt-5.2`
   - Claude: `claude-opus-4-6`
-  - Grok: `grok-4-latest`
+  - Grok: `grok-4-1-fast-reasoning`
   - Perplexity: `deep-research`

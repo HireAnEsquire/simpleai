@@ -454,7 +454,7 @@ def test_grok_adapter_payload_and_citations(tmp_path: Path) -> None:
 
     response = adapter.run(
         prompt="hello",
-        model="grok-4-latest",
+        model="grok-4-1-fast-reasoning",
         require_search=True,
         return_citations=True,
         files=[upload_file],
@@ -467,7 +467,7 @@ def test_grok_adapter_payload_and_citations(tmp_path: Path) -> None:
     assert response.citations[1].title == "Grok Article"
     assert response.citations[1].raw["title"] == "Grok Article"
     assert response.citations[1].url == "https://grok.example"
-    assert fake_chat.payload["model"] == "grok-4-latest"
+    assert fake_chat.payload["model"] == "grok-4-1-fast-reasoning"
     assert fake_chat.payload["tools"] == ["web_search_tool"]
     assert fake_chat.payload["tool_choice"] == "required"
     assert fake_chat.payload["max_turns"] == 12

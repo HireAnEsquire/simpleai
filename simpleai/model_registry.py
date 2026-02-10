@@ -64,7 +64,7 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "claude-haiku-3-5-20241022": "claude",
     "claude-3-7-sonnet-20250219": "claude",
     # xAI Grok
-    "grok-4-latest": "grok",
+    "grok-4-1-fast-reasoning": "grok",
     "grok-4-0709": "grok",
     "grok-4": "grok",
     "grok-4-fast": "grok",

@@ -180,7 +180,7 @@ SIMPLEAI = {
         "gemini": {"api_key": "...", "default_model": "gemini-3-pro-preview"},
         "openai": {"api_key": "...", "default_model": "gpt-5.2"},
         "claude": {"api_key": "...", "default_model": "claude-opus-4-6"},
-        "grok": {"api_key": "...", "default_model": "grok-4-latest"},
+        "grok": {"api_key": "...", "default_model": "grok-4-1-fast-reasoning"},
         "perplexity": {"api_key": "...", "default_model": "sonar-deep-research"},
     },
     "logging": {
@@ -379,7 +379,7 @@ Current default models in bundled settings:
 - Gemini: `gemini-3-pro-preview`
 - OpenAI: `gpt-5.2`
 - Claude: `claude-opus-4-6`
-- Grok: `grok-4-latest`
+- Grok: `grok-4-1-fast-reasoning`
 - Perplexity: `sonar-deep-research`
 
 These can be changed in your settings file at any time.

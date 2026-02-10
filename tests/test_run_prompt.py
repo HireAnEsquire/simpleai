@@ -159,7 +159,7 @@ def test_run_prompt_missing_provider_key_raises_settings_error(monkeypatch) -> N
         "defaults": ["grok"],
         "providers": {
             "grok": {
-                "default_model": "grok-4-latest",
+                "default_model": "grok-4-1-fast-reasoning",
                 "api_key": None,
             }
         },
@@ -167,7 +167,7 @@ def test_run_prompt_missing_provider_key_raises_settings_error(monkeypatch) -> N
     }
 
     monkeypatch.setattr("simpleai.api.load_settings", lambda settings_file=None: settings)
-    monkeypatch.setattr("simpleai.api.resolve_provider_and_model", lambda settings, model: ("grok", "grok-4-latest"))
+    monkeypatch.setattr("simpleai.api.resolve_provider_and_model", lambda settings, model: ("grok", "grok-4-1-fast-reasoning"))
     monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.delenv("GROK_API_KEY", raising=False)
 
@@ -185,7 +185,7 @@ def test_run_prompt_missing_provider_key_is_catchable_as_simpleai_exception(monk
         "defaults": ["grok"],
         "providers": {
             "grok": {
-                "default_model": "grok-4-latest",
+                "default_model": "grok-4-1-fast-reasoning",
                 "api_key": None,
             }
         },
@@ -193,7 +193,7 @@ def test_run_prompt_missing_provider_key_is_catchable_as_simpleai_exception(monk
     }
 
     monkeypatch.setattr("simpleai.api.load_settings", lambda settings_file=None: settings)
-    monkeypatch.setattr("simpleai.api.resolve_provider_and_model", lambda settings, model: ("grok", "grok-4-latest"))
+    monkeypatch.setattr("simpleai.api.resolve_provider_and_model", lambda settings, model: ("grok", "grok-4-1-fast-reasoning"))
     monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.delenv("GROK_API_KEY", raising=False)
 
