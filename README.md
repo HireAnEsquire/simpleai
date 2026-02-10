@@ -96,6 +96,38 @@ def run_prompt(
 - Default: `str` or validated Pydantic model instance (when `output_format` is provided).
 - If citations requested: `(result, citations)` tuple.
 
+### Citations structure
+
+When `return_citations=True`, the second element of the return tuple is a list of citation dictionaries.
+
+Each citation object has the following structure (represented as JSON):
+
+```json
+{
+  "provider": "openai",
+  "url": "https://example.com/article",
+  "title": "Article Title",
+  "source": "Optional source name",
+  "snippet": "Relevant text extracted from source...",
+  "citation_id": "unique-id-from-provider",
+  "start_index": 0,
+  "end_index": 100,
+  "raw": { ... }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `provider` | `str` | Provider name (e.g., "openai", "perplexity"). |
+| `url` | `str` or `None` | URL of the source. |
+| `title` | `str` or `None` | Title of the source. |
+| `source` | `str` or `None` | Source name or origin. |
+| `snippet` | `str` or `None` | Relevant content snippet. |
+| `citation_id` | `str` or `None` | Provider-specific citation ID. |
+| `start_index` | `int` or `None` | Start character index in the response text (if supported). |
+| `end_index` | `int` or `None` | End character index in the response text (if supported). |
+| `raw` | `dict` or `None` | Full raw citation object from the provider. |
+
 ### Error handling
 
 `run_prompt` always raises `SimpleAIException` (or one of its subclasses) for failures, so you can catch all runtime/config/provider errors with one exception type.
@@ -114,16 +146,6 @@ except SimpleAIException as exc:
 
 Specific exception subclasses (for targeted handling) are still available from `simpleai.exceptions`, for example `SettingsError` and `ProviderError`.
 
-`citations` is a normalized list of dicts with common keys like:
-- `provider`
-- `url`
-- `title`
-- `source`
-- `snippet`
-- `citation_id`
-- `start_index`
-- `end_index`
-- `raw`
 
 ## Configuration
 
