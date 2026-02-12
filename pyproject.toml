@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "haesimpleai"
+version = "0.1.0"
+description = "Unified prompt runner across major generative AI providers."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+  { name = "Hire an Esquire" }
+]
+keywords = ["ai", "llm", "django", "openai", "anthropic", "gemini", "grok", "perplexity"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Framework :: Django",
+  "Typing :: Typed",
+]
+dependencies = [
+  "pydantic>=2.7",
+  "openai>=2.17.0",
+  "anthropic>=0.78.0",
+  "google-genai>=1.62.0",
+  "xai-sdk>=1.6.1",
+  "perplexityai>=0.27.0",
+  "pypdf>=6.1.1",
+  "python-docx>=1.2.0",
+  "striprtf>=0.0.29",
+]
+
+[project.optional-dependencies]
+django = ["Django>=4.2"]
+dev = [
+  "pytest>=8.4",
+  "pytest-cov>=6.2",
+  "Django>=4.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/HireAnEsquire/simpleai"
+Repository = "https://github.com/HireAnEsquire/simpleai"
+Issues = "https://github.com/HireAnEsquire/simpleai/issues"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["simpleai*"]
+
+[tool.setuptools.package-data]
+simpleai = [
+  "py.typed",
+  "settings_examples/*.json",
+  "settings_examples/*.py",
+  "samples/*.pdf",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q"
