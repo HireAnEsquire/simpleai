@@ -212,13 +212,26 @@ class OpenAIAdapter(BaseAdapter):
         except Exception as exc:  # pragma: no cover - network/provider behavior
             msg = f"OpenAI adapter failed: {exc}"
 
-            # Add rate limit headers if available (e.g. on 429 errors)
+            # OpenAI's python SDK stores response headers on `exc.response.headers` for API errors.
             headers = getattr(exc, "headers", None)
-            if not headers:
-                response = getattr(exc, "response", None)
+            response = getattr(exc, "response", None)
+            if not headers and response is not None:
                 headers = getattr(response, "headers", None)
 
             if headers:
+                # Helpful identifiers
+                id_headers = [
+                    "x-request-id",
+                    "openai-request-id",
+                    "cf-ray",
+                ]
+                id_details = [
+                    f"{key}: {headers.get(key)}" for key in id_headers if headers.get(key) is not None
+                ]
+                if id_details:
+                    msg += "\n\nRequest identifiers:\n" + "\n".join(id_details)
+
+                # Rate limiting (docs: https://platform.openai.com/docs/guides/error-codes/api-errors)
                 relevant_headers = [
                     "x-ratelimit-limit-requests",
                     "x-ratelimit-limit-tokens",
@@ -227,12 +240,16 @@ class OpenAIAdapter(BaseAdapter):
                     "x-ratelimit-reset-requests",
                     "x-ratelimit-reset-tokens",
                 ]
-                details = [
+                rate_details = [
                     f"{key}: {headers.get(key)}"
                     for key in relevant_headers
                     if headers.get(key) is not None
                 ]
-                if details:
-                    msg += "\n\nRate limit headers:\n" + "\n".join(details)
+                if rate_details:
+                    msg += "\n\nRate limit headers:\n" + "\n".join(rate_details)
+                else:
+                    # Many 429s with `insufficient_quota` are *billing/quota* issues, not rate limit issues,
+                    # and may not include rate limit headers.
+                    msg += "\n\nRate limit headers: (not present in provider response)"
 
             raise ProviderError(msg) from exc
