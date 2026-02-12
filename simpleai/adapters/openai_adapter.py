@@ -214,6 +214,10 @@ class OpenAIAdapter(BaseAdapter):
 
             # Add rate limit headers if available (e.g. on 429 errors)
             headers = getattr(exc, "headers", None)
+            if not headers:
+                response = getattr(exc, "response", None)
+                headers = getattr(response, "headers", None)
+
             if headers:
                 relevant_headers = [
                     "x-ratelimit-limit-requests",
