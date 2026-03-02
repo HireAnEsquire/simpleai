@@ -5,7 +5,7 @@ SIMPLEAI = {
     "providers": {
         "gemini": {
             "api_key": "YOUR_GEMINI_API_KEY",
-            "default_model": "gemini-3-pro-preview",
+            "default_model": "gemini-3.1-pro-preview",
             "max_output_tokens": 8192,
         },
         "claude": {

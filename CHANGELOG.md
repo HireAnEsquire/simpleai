@@ -40,7 +40,7 @@ All notable changes to this project will be documented in this file.
 ### Defaults
 - Default provider order: `gemini`, `openai`, `claude`, `grok`, `perplexity`.
 - Default models at release time:
-  - Gemini: `gemini-3-pro-preview`
+  - Gemini: `gemini-3.1-pro-preview`
   - OpenAI: `gpt-5.2`
   - Claude: `claude-opus-4-6`
   - Grok: `grok-4-1-fast-reasoning`

@@ -66,7 +66,7 @@ class PromptLogger:
             return
 
         payload.setdefault("ts", time.time())
-        self.logger.info(json.dumps(payload, default=str, ensure_ascii=True, indent=2))
+        self.logger.info(json.dumps(payload, default=str, ensure_ascii=True))
 
     def log_start(self, args: dict[str, Any], adapter_payload: dict[str, Any]) -> str:
         event_id = str(uuid4())

@@ -6,7 +6,7 @@ from simpleai.model_registry import resolve_provider_and_model
 BASE_SETTINGS = {
     "defaults": ["gemini", "openai", "claude", "grok", "perplexity"],
     "providers": {
-        "gemini": {"default_model": "gemini-3-pro-preview", "api_key": None},
+        "gemini": {"default_model": "gemini-3.1-pro-preview", "api_key": None},
         "openai": {"default_model": "gpt-5.2", "api_key": "sk-test"},
         "claude": {"default_model": "claude-opus-4-6", "api_key": None},
         "grok": {"default_model": "grok-4-1-fast-reasoning", "api_key": None},
@@ -40,9 +40,9 @@ def test_resolve_unknown_model_heuristic() -> None:
 
 
 def test_resolve_latest_gemini_family() -> None:
-    provider, model = resolve_provider_and_model(BASE_SETTINGS, "gemini-3-pro-preview")
+    provider, model = resolve_provider_and_model(BASE_SETTINGS, "gemini-3.1-pro-preview")
     assert provider == "gemini"
-    assert model == "gemini-3-pro-preview"
+    assert model == "gemini-3.1-pro-preview"
 
 
 def test_default_provider_prefers_credentials() -> None:

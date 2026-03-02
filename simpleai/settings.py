@@ -23,7 +23,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "providers": {
         "gemini": {
             "api_key": None,
-            "default_model": "gemini-3-pro-preview",
+            "default_model": "gemini-3.1-pro-preview",
             "max_output_tokens": 8192,
         },
         "claude": {

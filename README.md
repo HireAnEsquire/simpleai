@@ -177,7 +177,7 @@ INSTALLED_APPS = [
 SIMPLEAI = {
     "defaults": ["gemini", "openai", "claude", "grok", "perplexity"],
     "providers": {
-        "gemini": {"api_key": "...", "default_model": "gemini-3-pro-preview"},
+        "gemini": {"api_key": "...", "default_model": "gemini-3.1-pro-preview"},
         "openai": {"api_key": "...", "default_model": "gpt-5.2"},
         "claude": {"api_key": "...", "default_model": "claude-opus-4-6"},
         "grok": {"api_key": "...", "default_model": "grok-4-1-fast-reasoning"},
@@ -376,7 +376,7 @@ PyPI publishing steps are documented in [README_PYPI.md](README_PYPI.md).
 ## Defaults (as of 2026-02-06)
 
 Current default models in bundled settings:
-- Gemini: `gemini-3-pro-preview`
+- Gemini: `gemini-3.1-pro-preview`
 - OpenAI: `gpt-5.2`
 - Claude: `claude-opus-4-6`
 - Grok: `grok-4-1-fast-reasoning`

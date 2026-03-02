@@ -10,6 +10,10 @@ from .settings import canonical_provider_name, get_provider_api_key
 # Known model IDs from official provider model docs as of 2026-02-06.
 MODEL_PROVIDER_MAP: dict[str, str] = {
     # OpenAI
+    "gpt-5.3-codex": "openai",
+    "gpt-5.3-codex-spark": "openai",
+    "gpt-oss-120b": "openai",
+    "gpt-oss-20b": "openai",
     "gpt-5.2": "openai",
     "gpt-5.2-mini": "openai",
     "gpt-5.2-nano": "openai",
@@ -35,8 +39,11 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "computer-use-preview": "openai",
     "codex-mini-latest": "openai",
     # Gemini
-    "gemini-3-pro": "gemini",
-    "gemini-3-pro-preview": "gemini",
+    "gemini-3.1-pro-preview": "gemini",
+    "gemini-3.1-flash": "gemini",
+    "gemini-3.1-flash-image": "gemini",
+    "gemini-3-pro-image": "gemini",
+    "gemini-3.1-pro-preview-customtools": "gemini",
     "gemini-3-flash-preview": "gemini",
     "gemini-3-flash-lite-preview": "gemini",
     "gemini-2.5-pro": "gemini",
@@ -53,6 +60,7 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "veo-3.0-generate-preview": "gemini",
     # Anthropic Claude
     "claude-opus-4-6": "claude",
+    "claude-sonnet-4-6": "claude",
     "claude-opus-4-6-20260115": "claude",
     "claude-sonnet-4-5": "claude",
     "claude-opus-4-1-20250805": "claude",
@@ -64,6 +72,9 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "claude-haiku-3-5-20241022": "claude",
     "claude-3-7-sonnet-20250219": "claude",
     # xAI Grok
+    "grok-5": "grok",
+    "grok-4.20": "grok",
+    "grok-4.2": "grok",
     "grok-4-1-fast-reasoning": "grok",
     "grok-4-0709": "grok",
     "grok-4": "grok",
@@ -86,6 +97,7 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "grok-3-mini-fast-latest": "grok",
     "grok-code-fast-1": "grok",
     # Perplexity
+    "pplx-embed": "perplexity",
     "fast-search": "perplexity",
     "pro-search": "perplexity",
     "deep-research": "perplexity",
