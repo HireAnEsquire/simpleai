@@ -194,8 +194,9 @@ class GeminiAdapter(BaseAdapter):
             if getattr(self, "_use_vertexai", False) and model.startswith("gemini-3.1"):
                 client = self._genai.Client(vertexai=True, project=self._project, location="global")
 
+            default_max_tokens = 65536 if "gemini-3.1" in model else 8192
             config_kwargs: dict[str, Any] = {
-                "max_output_tokens": int(self.provider_settings.get("max_output_tokens", 8192)),
+                "max_output_tokens": int(self.provider_settings.get("max_output_tokens", default_max_tokens)),
             }
 
             if require_search:
@@ -204,7 +205,7 @@ class GeminiAdapter(BaseAdapter):
                 ]
                 config_kwargs.setdefault(
                     "system_instruction",
-                    "Use Google Search to ground your answer and provide citations to sources.",
+                    "Use Google Search to ground your answer and provide citations to sources. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error.",
                 )
 
             if output_format is not None:
@@ -246,6 +247,15 @@ class GeminiAdapter(BaseAdapter):
 
             if not text.strip():
                 raise ProviderError(f"Gemini returned empty response. Raw payload: {response_dict}")
+
+            # Check if generation was cut off
+            for candidate in response_dict.get("candidates", []):
+                fr = str(candidate.get("finish_reason") or candidate.get("finishReason") or "").upper()
+                if fr in ("MAX_TOKENS", "2"):
+                    if output_format is not None:
+                        raise ProviderError("Gemini hit MAX_TOKENS before finishing the JSON response. Try increasing max_output_tokens.")
+                    else:
+                        logger.warning("Gemini hit MAX_TOKENS. The response may be incomplete.")
 
             citations = self._extract_citations(response_dict) if return_citations else []
             return AdapterResponse(text=text, citations=citations, raw=response_dict)

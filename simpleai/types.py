@@ -21,6 +21,7 @@ class Citation:
     citation_id: str | None = None
     start_index: int | None = None
     end_index: int | None = None
+    is_alive: bool | None = None
     raw: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:

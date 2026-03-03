@@ -63,6 +63,7 @@ def run_prompt(
     *,
     require_search=False,
     return_citations=None,
+    validate_urls=None,
     file=None,
     files=None,
     binary_files=True,
@@ -81,6 +82,7 @@ def run_prompt(
 - `return_citations` (default `True` when `require_search=True`, else `False`): include normalized citations.
   - If `return_citations=True`, `require_search` is always forced to `True` (even if passed as `False`).
   - String booleans like `"True"` / `"False"` are accepted.
+- `validate_urls` (default `True` when `return_citations=True`, else `False`): actively test citation URLs concurrently via `HEAD` requests. Sets `is_alive=False` if the link returns a 404 or 5xx error. Otherwise `is_alive=True`.
 - `file` / `files`: one file path or multiple file paths.
 - `binary_files` (default `True`): upload binary attachments when adapter supports them; otherwise text extraction fallback.
 - `model`: provider alias or model name.
@@ -112,6 +114,7 @@ Each citation object has the following structure (represented as JSON):
   "citation_id": "unique-id-from-provider",
   "start_index": 0,
   "end_index": 100,
+  "is_alive": true,
   "raw": { ... }
 }
 ```
@@ -126,6 +129,7 @@ Each citation object has the following structure (represented as JSON):
 | `citation_id` | `str` or `None` | Provider-specific citation ID. |
 | `start_index` | `int` or `None` | Start character index in the response text (if supported). |
 | `end_index` | `int` or `None` | End character index in the response text (if supported). |
+| `is_alive` | `bool` or `None` | Whether the URL is actively available (not 404 or 5xx), if `validate_urls` was enabled. |
 | `raw` | `dict` or `None` | Full raw citation object from the provider. |
 
 ### Error handling

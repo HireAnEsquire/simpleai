@@ -15,7 +15,7 @@ from .files import collect_file_paths, extract_text_from_files
 from .model_registry import resolve_provider_and_model
 from .settings import expected_provider_env_vars, get_provider_api_key, load_settings
 from .types import PromptInput
-from .utils import coerce_output
+from .utils import coerce_output, validate_citations
 
 
 def _coerce_bool(value: bool | str | None, *, name: str, allow_none: bool) -> bool | None:
@@ -109,6 +109,7 @@ def _build_log_args(
     prompt: PromptInput,
     require_search: bool,
     return_citations: bool,
+    validate_urls: bool,
     file: str | Path | None,
     files: str | Path | Iterable[str | Path] | None,
     binary_files: bool,
@@ -120,6 +121,7 @@ def _build_log_args(
         "prompt": prompt,
         "require_search": require_search,
         "return_citations": return_citations,
+        "validate_urls": validate_urls,
         "file": str(file) if file is not None else None,
         "files": [str(item) for item in files] if isinstance(files, (list, tuple, set)) else str(files) if files else None,
         "binary_files": binary_files,
@@ -135,6 +137,7 @@ def run_prompt(
     *,
     require_search: bool = False,
     return_citations: bool | None = None,
+    validate_urls: bool | None = None,
     file: str | Path | None = None,
     files: str | Path | Iterable[str | Path] | None = None,
     binary_files: bool = True,
@@ -150,6 +153,7 @@ def run_prompt(
         prompt: Required prompt string or list of conversation turns.
         require_search: If True, enables provider-native search tools.
         return_citations: Defaults to True when require_search is True, else False.
+        validate_urls: If True, tests citation URLs to ensure they are alive (not 404 or 500+). Defaults to True if return_citations is enabled.
         file: Optional single file path.
         files: Optional single path or list of paths.
         binary_files: If True and adapter supports it, upload files as binary attachments.
@@ -167,10 +171,14 @@ def run_prompt(
     try:
         require_search_bool = bool(_coerce_bool(require_search, name="require_search", allow_none=False))
         return_citations_bool = _coerce_bool(return_citations, name="return_citations", allow_none=True)
+        validate_urls_bool = _coerce_bool(validate_urls, name="validate_urls", allow_none=True)
         binary_files_bool = bool(_coerce_bool(binary_files, name="binary_files", allow_none=False))
 
         effective_return_citations = (
             require_search_bool if return_citations_bool is None else bool(return_citations_bool)
+        )
+        effective_validate_urls = (
+            True if validate_urls_bool is None else bool(validate_urls_bool)
         )
         # Citations require grounded search context; citations always force search on.
         effective_require_search = require_search_bool or effective_return_citations
@@ -224,6 +232,7 @@ def run_prompt(
                 prompt=prompt,
                 require_search=effective_require_search,
                 return_citations=effective_return_citations,
+                validate_urls=effective_validate_urls,
                 file=file,
                 files=files,
                 binary_files=binary_files_bool,
@@ -236,6 +245,7 @@ def run_prompt(
                 "model": resolved_model,
                 "require_search": effective_require_search,
                 "return_citations": effective_return_citations,
+                "validate_urls": effective_validate_urls,
                 "binary_files": binary_files_bool,
                 "adapter_supports_binary": adapter.supports_binary_files,
                 "file_count": len(file_paths),
@@ -268,6 +278,9 @@ def run_prompt(
             raise ProviderError(f"Provider '{provider}' failed: {exc}") from exc
 
         result = coerce_output(adapter_response.text, output_format)
+        if effective_validate_urls and effective_return_citations:
+            validate_citations(adapter_response.citations)
+            
         citations = [item.to_dict() for item in adapter_response.citations]
 
         logger.log_end(
