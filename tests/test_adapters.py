@@ -390,6 +390,43 @@ def test_gemini_adapter_payload_and_citations(tmp_path: Path) -> None:
     )
 
 
+def test_gemini_adapter_empty_response(tmp_path: Path) -> None:
+    class FakeGeminiEmptyResponse:
+        text = ""
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "candidates": [
+                    {
+                        "finishReason": "SAFETY",
+                    }
+                ]
+            }
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            return FakeGeminiEmptyResponse()
+
+    adapter = GeminiAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(models=FakeModels())
+
+    import pytest
+    from simpleai.exceptions import ProviderError
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.run(
+            prompt="hello",
+            model="gemini-3-pro-preview",
+            require_search=False,
+            return_citations=False,
+            files=None,
+            output_format=None,
+            adapter_options=None,
+        )
+
+    assert "Gemini returned empty response. Raw payload:" in str(exc.value)
+
+
 def test_grok_adapter_payload_and_citations(tmp_path: Path) -> None:
     upload_file = tmp_path / "data.txt"
     upload_file.write_text("hello", encoding="utf-8")

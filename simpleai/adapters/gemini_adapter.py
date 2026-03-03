@@ -222,9 +222,12 @@ class GeminiAdapter(BaseAdapter):
                 for candidate in response_dict.get("candidates", []):
                     content = candidate.get("content") or {}
                     for part in content.get("parts") or []:
-                        if "text" in part:
+                        if part.get("text"):
                             chunks.append(part["text"])
                 text = "\n".join(chunks)
+
+            if not text.strip():
+                raise ProviderError(f"Gemini returned empty response. Raw payload: {response_dict}")
 
             citations = self._extract_citations(response_dict) if return_citations else []
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
