@@ -386,7 +386,7 @@ def test_gemini_adapter_payload_and_citations(tmp_path: Path) -> None:
     assert response.citations[0].url == "https://gemini.example"
     assert fake_models.payload["model"] == "gemini-2.5-pro"
     assert fake_models.payload["config"].system_instruction == (
-        "Use Google Search to ground your answer and provide citations to sources. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or require a login/paywall (403)."
+        "Use Google Search to ground your answer and provide citations to sources. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error."
     )
 
 

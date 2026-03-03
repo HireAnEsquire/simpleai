@@ -253,7 +253,8 @@ class GeminiAdapter(BaseAdapter):
                 fr = str(candidate.get("finish_reason") or candidate.get("finishReason") or "").upper()
                 if fr in ("MAX_TOKENS", "2"):
                     if output_format is not None:
-                        raise ProviderError("Gemini hit MAX_TOKENS before finishing the JSON response. Try increasing max_output_tokens.")
+                        max_tokens = config_kwargs.get("max_output_tokens", "unknown")
+                        raise ProviderError(f"Gemini hit MAX_TOKENS before finishing the JSON response. Try increasing max_output_tokens (currently {max_tokens} for model {model}).")
                     else:
                         logger.warning("Gemini hit MAX_TOKENS. The response may be incomplete.")
 
