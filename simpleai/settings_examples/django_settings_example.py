@@ -7,6 +7,9 @@ SIMPLEAI = {
             "api_key": "YOUR_GEMINI_API_KEY",
             "default_model": "gemini-3.1-pro-preview",
             "max_output_tokens": 8192,
+            "use_vertexai": False,  # Set to True to use Vertex AI instead of standard API
+            "vertexai_project": "YOUR_GOOGLE_CLOUD_PROJECT_ID",  # Required if use_vertexai=True
+            "vertexai_location": "us-central1",  # Required if use_vertexai=True
         },
         "claude": {
             "api_key": "YOUR_ANTHROPIC_API_KEY",

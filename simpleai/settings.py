@@ -25,6 +25,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "api_key": None,
             "default_model": "gemini-3.1-pro-preview",
             "max_output_tokens": 8192,
+            "use_vertexai": False,
+            "vertexai_project": None,
+            "vertexai_location": None,
         },
         "claude": {
             "api_key": None,

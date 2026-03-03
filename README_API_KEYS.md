@@ -25,17 +25,50 @@ Docs:
 Docs:
 - [Anthropic API getting started](https://docs.anthropic.com/en/api/getting-started)
 
-## Google Gemini
+## Google Gemini (Standard API vs Vertex AI)
 
-1. Open Google AI Studio.
+SimpleAI supports both the standard Google AI Studio API (default) and Google Cloud Vertex AI.
+
+### Option 1: Standard API (Default)
+
+1. Open [Google AI Studio](https://aistudio.google.com/).
 2. Generate a Gemini API key.
-3. Set `GEMINI_API_KEY` or place it in settings.
+3. Set `GEMINI_API_KEY` in your environment or place it in settings.
 
 Docs:
 - [Gemini API quickstart](https://ai.google.dev/gemini-api/docs/quickstart)
 
-Notes:
-- If you use Gemini via Vertex AI instead of AI Studio key auth, project/location and Google credentials are required by that platform.
+### Option 2: Vertex AI
+
+If you need enterprise features or specific compliance guarantees, you can switch the adapter to use Vertex AI. 
+
+For full step-by-step instructions on setting up a Google Cloud Project, Service Account, and downloading credentials, see the **[Vertex AI Setup Guide](README_VERTEX_AI.md)**.
+
+**Configuration:**
+
+Once your credentials are set up (via the `GOOGLE_APPLICATION_CREDENTIALS` environment variable), you can switch to Vertex AI by configuring `.env` variables or through Django/`ai_settings.json`.
+
+**Via Environment Variables (`.env`):**
+```env
+GEMINI_USE_VERTEXAI=true
+GEMINI_VERTEXAI_PROJECT=your-google-cloud-project-id
+GEMINI_VERTEXAI_LOCATION=us-central1
+```
+
+**Via Django `settings.py` / `ai_settings.json`:**
+```json
+{
+  "providers": {
+    "gemini": {
+      "use_vertexai": true,
+      "vertexai_project": "your-google-cloud-project-id",
+      "vertexai_location": "us-central1"
+    }
+  }
+}
+```
+
+*Note: When `use_vertexai` is `true`, the `api_key` setting is ignored and standard GCP authentication is used instead.*
 
 ## xAI (Grok)
 

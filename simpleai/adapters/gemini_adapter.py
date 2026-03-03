@@ -42,8 +42,18 @@ class GeminiAdapter(BaseAdapter):
         except Exception as exc:  # pragma: no cover - dependency missing path
             raise ProviderError("google-genai package is required for GeminiAdapter.") from exc
 
-        api_key = provider_settings.get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self.client = genai.Client(api_key=api_key)
+        use_vertexai = provider_settings.get("use_vertexai")
+        if use_vertexai is None:
+            use_vertexai = str(os.getenv("GEMINI_USE_VERTEXAI", "")).lower() in ("true", "1", "yes")
+
+        if use_vertexai:
+            project = provider_settings.get("vertexai_project") or os.getenv("GEMINI_VERTEXAI_PROJECT")
+            location = provider_settings.get("vertexai_location") or os.getenv("GEMINI_VERTEXAI_LOCATION")
+            self.client = genai.Client(vertexai=True, project=project, location=location)
+        else:
+            api_key = provider_settings.get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            self.client = genai.Client(api_key=api_key)
+
         self.types = types
 
     def _build_contents(self, prompt: PromptInput, files: Sequence[Path] | None) -> Any:

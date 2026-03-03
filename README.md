@@ -177,7 +177,11 @@ INSTALLED_APPS = [
 SIMPLEAI = {
     "defaults": ["gemini", "openai", "claude", "grok", "perplexity"],
     "providers": {
-        "gemini": {"api_key": "...", "default_model": "gemini-3.1-pro-preview"},
+        "gemini": {
+            "api_key": "...", 
+            "default_model": "gemini-3.1-pro-preview",
+            "use_vertexai": False,  # Set to True and provide project/location to use Vertex AI
+        },
         "openai": {"api_key": "...", "default_model": "gpt-5.2"},
         "claude": {"api_key": "...", "default_model": "claude-opus-4-6"},
         "grok": {"api_key": "...", "default_model": "grok-4-1-fast-reasoning"},
@@ -199,13 +203,13 @@ Use `simpleai/settings_examples/django_settings_example.py` for the full templat
 Provider auth is API-key-based for normal usage.
 - OpenAI: API key
 - Anthropic: API key
-- Gemini (Google AI Studio API): API key
+- Gemini (Google AI Studio API): API key (or Vertex AI via GCP authentication)
 - xAI: API key
 - Perplexity: API key
 
-No separate app ID is required for basic API usage. Some optional enterprise/alternate paths (for example Google Vertex AI) may require project configuration in addition to credentials.
+No separate app ID is required for basic API usage. Some optional enterprise/alternate paths (for example Google Vertex AI) may require project configuration in addition to credentials. For more on using Vertex AI vs the standard Google AI Studio API for Gemini, see the setup instructions.
 
-API key setup instructions are in [README_API_KEYS.md](README_API_KEYS.md).
+API key and Vertex AI setup instructions are in [README_API_KEYS.md](README_API_KEYS.md).
 
 ## File handling
 
