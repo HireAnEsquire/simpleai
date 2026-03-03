@@ -50,13 +50,17 @@ class GeminiAdapter(BaseAdapter):
             project = provider_settings.get("vertexai_project") or os.getenv("GEMINI_VERTEXAI_PROJECT")
             location = provider_settings.get("vertexai_location") or os.getenv("GEMINI_VERTEXAI_LOCATION")
             self.client = genai.Client(vertexai=True, project=project, location=location)
+            self._project = project
         else:
             api_key = provider_settings.get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             self.client = genai.Client(api_key=api_key)
 
         self.types = types
+        self._genai = genai
+        self._use_vertexai = use_vertexai
 
-    def _build_contents(self, prompt: PromptInput, files: Sequence[Path] | None) -> Any:
+    def _build_contents(self, prompt: PromptInput, files: Sequence[Path] | None, client: Any = None) -> Any:
+        client = client or self.client
         contents: list[Any] = []
 
         if files:
@@ -68,7 +72,7 @@ class GeminiAdapter(BaseAdapter):
                 reraise=True,
             )
             def _upload(p: Path) -> Any:
-                return self.client.files.upload(file=str(p))
+                return client.files.upload(file=str(p))
 
             for path in files:
                 uploaded = _upload(path)
@@ -186,6 +190,10 @@ class GeminiAdapter(BaseAdapter):
         adapter_options: dict[str, Any] | None,
     ) -> AdapterResponse:
         try:
+            client = self.client
+            if getattr(self, "_use_vertexai", False) and model.startswith("gemini-3.1"):
+                client = self._genai.Client(vertexai=True, project=self._project, location="global")
+
             config_kwargs: dict[str, Any] = {
                 "max_output_tokens": int(self.provider_settings.get("max_output_tokens", 8192)),
             }
@@ -207,7 +215,7 @@ class GeminiAdapter(BaseAdapter):
                 config_kwargs.update(adapter_options)
 
             config = self.types.GenerateContentConfig(**config_kwargs)
-            contents = self._build_contents(prompt, files)
+            contents = self._build_contents(prompt, files, client=client)
 
             @retry(
                 retry=retry_if_exception(_is_retryable_gemini_error),
@@ -217,7 +225,7 @@ class GeminiAdapter(BaseAdapter):
                 reraise=True,
             )
             def _generate() -> Any:
-                return self.client.models.generate_content(
+                return client.models.generate_content(
                     model=model,
                     contents=contents,
                     config=config,

@@ -33,32 +33,38 @@ def pydantic_schema(output_format: type[BaseModel] | None) -> dict[str, Any] | N
 
 
 
-def _extract_candidate_json(text: str) -> str:
+def _extract_candidate_json_blocks(text: str) -> list[str]:
     stripped = text.strip()
     if not stripped:
-        raise ValueError("No content to parse.")
+        return []
+
+    blocks = []
 
     if (stripped.startswith("{") and stripped.endswith("}")) or (
         stripped.startswith("[") and stripped.endswith("]")
     ):
         try:
             json.loads(stripped)
-            return stripped
+            blocks.append(stripped)
         except json.JSONDecodeError:
             pass  # Fall through to raw_decode path
 
     decoder = json.JSONDecoder()
-    for start in range(len(stripped)):
+    start = 0
+    length = len(stripped)
+    while start < length:
         char = stripped[start]
         if char not in "[{":
+            start += 1
             continue
         try:
             _, end = decoder.raw_decode(stripped[start:])
+            blocks.append(stripped[start : start + end])
+            start += end
         except json.JSONDecodeError:
-            continue
-        return stripped[start : start + end]
+            start += 1
 
-    raise ValueError("Could not find JSON object/array in model output.")
+    return blocks
 
 
 
@@ -71,6 +77,17 @@ def coerce_output(
     if output_format is None:
         return text
 
-    json_payload = _extract_candidate_json(text)
+    blocks = _extract_candidate_json_blocks(text)
+    if not blocks:
+        raise ValueError("Could not find JSON object/array in model output.")
+
     adapter = TypeAdapter(output_format)
-    return adapter.validate_json(json_payload)
+    
+    last_error = None
+    for payload in blocks:
+        try:
+            return adapter.validate_json(payload)
+        except Exception as e:
+            last_error = e
+            
+    raise ValueError(f"No extracted JSON block passed validation. Last error: {last_error}")
