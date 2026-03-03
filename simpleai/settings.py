@@ -24,7 +24,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "gemini": {
             "api_key": None,
             "default_model": "gemini-3.1-pro-preview",
-            "max_output_tokens": 8192,
+            "max_output_tokens": 65536,
             "use_vertexai": False,
             "vertexai_project": None,
             "vertexai_location": None,
@@ -32,14 +32,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "claude": {
             "api_key": None,
             "default_model": "claude-opus-4-6",
-            "max_tokens": 4096,
+            "max_tokens": 128000,
             "max_retries": 3,  # retries on 429 errors (uses retry-after header)
             "skip_citation_followup": False,  # skip extra API call for citations
         },
         "openai": {
             "api_key": None,
             "default_model": "gpt-5.2",
-            "max_output_tokens": 8192,
+            "max_output_tokens": 128000,
             "base_url": None,
         },
         "grok": {
@@ -50,7 +50,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "perplexity": {
             "api_key": None,
             "default_model": "sonar-deep-research",
-            "max_output_tokens": 4096,
+            "max_output_tokens": 128000,
         },
     },
     "logging": {

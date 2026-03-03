@@ -6,19 +6,19 @@ SIMPLEAI = {
         "gemini": {
             "api_key": "YOUR_GEMINI_API_KEY",
             "default_model": "gemini-3.1-pro-preview",
-            "max_output_tokens": 8192,
+            "max_output_tokens": 65536,
         },
         "claude": {
             "api_key": "YOUR_ANTHROPIC_API_KEY",
             "default_model": "claude-opus-4-6",
-            "max_tokens": 4096,
+            "max_tokens": 128000,
             "max_retries": 3,  # retries on 429 errors (uses retry-after header)
             "skip_citation_followup": False,  # skip extra API call for citations
         },
         "openai": {
             "api_key": "YOUR_OPENAI_API_KEY",
             "default_model": "gpt-5.2",
-            "max_output_tokens": 8192,
+            "max_output_tokens": 128000,
             "base_url": None,
         },
         "grok": {
@@ -29,7 +29,7 @@ SIMPLEAI = {
         "perplexity": {
             "api_key": "YOUR_PERPLEXITY_API_KEY",
             "default_model": "sonar-deep-research",
-            "max_output_tokens": 4096,
+            "max_output_tokens": 128000,
         },
     },
     "logging": {

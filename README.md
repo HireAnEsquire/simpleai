@@ -267,7 +267,7 @@ Configuration options (set in `ai_settings.json` under `providers.claude`):
     "claude": {
       "api_key": "...",
       "default_model": "claude-opus-4-6",
-      "max_tokens": 4096,
+      "max_tokens": 128000,
       "max_retries": 3,
       "skip_citation_followup": false
     }
