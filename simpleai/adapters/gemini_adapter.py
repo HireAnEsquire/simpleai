@@ -2,15 +2,31 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Sequence
 
 from pydantic import BaseModel
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from simpleai.adapters.base import BaseAdapter
 from simpleai.exceptions import ProviderError
 from simpleai.types import AdapterResponse, Citation, PromptInput
+
+logger = logging.getLogger(__name__)
+
+
+def _is_retryable_gemini_error(exc: BaseException) -> bool:
+    """Check if the exception from Gemini is retryable (e.g., 503 or 429)."""
+    exc_str = str(exc)
+    return "503" in exc_str or "429" in exc_str or "UNAVAILABLE" in exc_str or "Too Many Requests" in exc_str
 
 
 class GeminiAdapter(BaseAdapter):
@@ -34,8 +50,18 @@ class GeminiAdapter(BaseAdapter):
         contents: list[Any] = []
 
         if files:
+            @retry(
+                retry=retry_if_exception(_is_retryable_gemini_error),
+                wait=wait_exponential(multiplier=1, min=2, max=120),
+                stop=stop_after_attempt(9),
+                before_sleep=before_sleep_log(logger, logging.WARNING),
+                reraise=True,
+            )
+            def _upload(p: Path) -> Any:
+                return self.client.files.upload(file=str(p))
+
             for path in files:
-                uploaded = self.client.files.upload(file=str(path))
+                uploaded = _upload(path)
                 contents.append(uploaded)
 
         if isinstance(prompt, str):
@@ -171,11 +197,23 @@ class GeminiAdapter(BaseAdapter):
                 config_kwargs.update(adapter_options)
 
             config = self.types.GenerateContentConfig(**config_kwargs)
-            response = self.client.models.generate_content(
-                model=model,
-                contents=self._build_contents(prompt, files),
-                config=config,
+            contents = self._build_contents(prompt, files)
+
+            @retry(
+                retry=retry_if_exception(_is_retryable_gemini_error),
+                wait=wait_exponential(multiplier=1, min=2, max=120),
+                stop=stop_after_attempt(7),
+                before_sleep=before_sleep_log(logger, logging.WARNING),
+                reraise=True,
             )
+            def _generate() -> Any:
+                return self.client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
+
+            response = _generate()
 
             response_dict = response.model_dump(mode="json") if hasattr(response, "model_dump") else {}
             text = getattr(response, "text", "") or ""
