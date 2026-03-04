@@ -177,9 +177,10 @@ def run_prompt(
         effective_return_citations = (
             require_search_bool if return_citations_bool is None else bool(return_citations_bool)
         )
-        effective_validate_urls = (
-            True if validate_urls_bool is None else bool(validate_urls_bool)
-        )
+        if validate_urls_bool is None:
+            effective_validate_urls = effective_return_citations
+        else:
+            effective_validate_urls = bool(validate_urls_bool)
         # Citations require grounded search context; citations always force search on.
         effective_require_search = require_search_bool or effective_return_citations
 
