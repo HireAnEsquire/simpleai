@@ -336,20 +336,20 @@ Definition of success in this runner:
 ### Standalone Python script
 
 ```bash
-python ./simpleai/scripts/run_provider_smoke.py
+python scripts/run_provider_smoke.py
 ```
 
 If `--file` is omitted, the runner looks in this order:
+- `$SAMPLE_PDF_PATH` environment variable
 - bundled package sample: `simpleai/samples/functionalsample.pdf` (works from installed package, including Django projects)
-- `../hae/api/functionalsample.pdf`
 - current working directory: `./functionalsample.pdf`
-- repo root: `./simpleai/functionalsample.pdf`
+- parent directory of the `simpleai` module (e.g., repo root): `../functionalsample.pdf`
 
 Optional args:
 
 ```bash
-python ./simpleai/scripts/run_provider_smoke.py \
-  --file ../hae/api/functionalsample.pdf \
+python scripts/run_provider_smoke.py \
+  --file ./functionalsample.pdf \
   --providers openai anthropic gemini grok perplexity \
   --settings-file /path/to/ai_settings.json
 ```
@@ -366,7 +366,7 @@ Optional args:
 
 ```bash
 python manage.py run_provider_smoke \
-  --file ../hae/api/functionalsample.pdf \
+  --file ./functionalsample.pdf \
   --providers openai anthropic gemini grok perplexity \
   --settings-file /path/to/ai_settings.json
 ```

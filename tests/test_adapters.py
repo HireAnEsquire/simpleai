@@ -417,7 +417,12 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
             return FakeFiles()
 
     class FakeGenAI:
-        Client = FakeClient
+        def __init__(self) -> None:
+            self.client_instance = None
+
+        def Client(self, **kwargs):
+            self.client_instance = FakeClient(**kwargs)
+            return self.client_instance
 
     adapter = GeminiAdapter({
         "use_vertexai": True,
@@ -431,25 +436,20 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
     # We swap adapter.client to None so if it uses it by mistake it throws
     adapter.client = None
     
-    # Wait, the code in `run` says:
-    # client = self.client
-    # if getattr(self, "_use_vertexai", False) and model.startswith("gemini-3.1"):
-    #     client = self._genai.Client(vertexai=True, project=self._project, location="global")
-    # This will override `None` with `FakeClient`.
-    
     # Run with 3.1 model to test global override
-    try:
-        adapter.run(
-            prompt="hello",
-            model="gemini-3.1-pro-preview",
-            require_search=False,
-            return_citations=False,
-            files=None,
-            output_format=None,
-            adapter_options=None,
-        )
-    except Exception:
-        pass
+    adapter.run(
+        prompt="hello",
+        model="gemini-3.1-pro-preview",
+        require_search=False,
+        return_citations=False,
+        files=None,
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert fake_genai.client_instance is not None
+    assert fake_genai.client_instance.kwargs.get("location") == "global"
+    assert fake_genai.client_instance.models.payload is not None
 
 def test_gemini_adapter_empty_response(tmp_path: Path) -> None:
     class FakeGeminiEmptyResponse:
