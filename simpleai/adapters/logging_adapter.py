@@ -163,7 +163,12 @@ def _log_httpx_exchange(logger: PromptLogger, request: Any, response: Any) -> No
         if response.headers.get("content-type", "").startswith("text/event-stream"):
             is_stream = True
 
-        response_body = _safe_body(getattr(response, "content", None), is_stream)
+        if is_stream:
+            # Avoid accessing response.content for streaming responses to prevent
+            # consuming the stream or changing application behavior.
+            response_body = _safe_body(None, is_stream=True)
+        else:
+            response_body = _safe_body(getattr(response, "content", None), is_stream=False)
 
         logger._emit(
             {
