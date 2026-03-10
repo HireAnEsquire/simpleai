@@ -53,3 +53,7 @@ ai_settings.json
 #Database files
 *.sqlite3
 *.db
+
+
+#UV
+uv.lock
