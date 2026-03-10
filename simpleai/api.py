@@ -254,31 +254,46 @@ def run_prompt(
             },
         )
 
-        try:
-            adapter_response = adapter.run(
-                prompt=prompt_payload,
-                model=resolved_model,
-                require_search=effective_require_search,
-                return_citations=effective_return_citations,
-                files=adapter_files,
-                output_format=output_format,
-                adapter_options=combined_adapter_options or None,
-            )
-        except Exception as exc:
-            logger.log_error(
-                event_id=event_id,
-                started_at=started_at,
-                error=exc,
-                context={
-                    "provider": provider,
-                    "model": resolved_model,
-                },
-            )
-            if isinstance(exc, ProviderError):
-                raise
-            raise ProviderError(f"Provider '{provider}' failed: {exc}") from exc
+        max_attempts = 6  # initial attempt + up to 5 retries
+        for attempt in range(max_attempts):
+            try:
+                adapter_response = adapter.run(
+                    prompt=prompt_payload,
+                    model=resolved_model,
+                    require_search=effective_require_search,
+                    return_citations=effective_return_citations,
+                    files=adapter_files,
+                    output_format=output_format,
+                    adapter_options=combined_adapter_options or None,
+                )
+            except Exception as exc:
+                logger.log_error(
+                    event_id=event_id,
+                    started_at=started_at,
+                    error=exc,
+                    context={
+                        "provider": provider,
+                        "model": resolved_model,
+                    },
+                )
+                if isinstance(exc, ProviderError):
+                    raise
+                raise ProviderError(f"Provider '{provider}' failed: {exc}") from exc
 
-        result = coerce_output(adapter_response.text, output_format)
+            try:
+                result = coerce_output(adapter_response.text, output_format)
+                break  # Successful validation
+            except ValueError as val_err:
+                if output_format is not None and attempt < max_attempts - 1:
+                    logger.log_error(
+                        event_id=event_id,
+                        started_at=started_at,
+                        error=val_err,
+                        context={"provider": provider, "model": resolved_model, "attempt": attempt + 1, "message": "Validation failed, retrying"}
+                    )
+                    continue
+                # If we've exhausted attempts or if it's not a schema-related ValueError (though coerce_output raises ValueError)
+                raise
         if effective_validate_urls and effective_return_citations:
             validate_citations(adapter_response.citations)
             
