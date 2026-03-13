@@ -601,8 +601,8 @@ def test_perplexity_adapter_payload_and_citations() -> None:
                         "type": "search_results",
                         "results": [
                             {
-                                "url": "https://pplx-search.example",
-                                "title": "Search",
+                                "url": "https://pplx.example",
+                                "title": "PPLX",
                                 "source": "web",
                                 "snippet": "snippet",
                             }
@@ -635,10 +635,78 @@ def test_perplexity_adapter_payload_and_citations() -> None:
     )
 
     assert response.text == "perplexity answer"
-    assert len(response.citations) == 2
+    assert len(response.citations) == 1
+    assert response.citations[0].url == "https://pplx.example"
+    assert response.citations[0].title == "PPLX"
+    assert response.citations[0].source == "PPLX"
+    assert response.citations[0].snippet == "snippet"
+    assert response.citations[0].raw == {
+        "annotation": {
+            "url": "https://pplx.example",
+            "title": "PPLX",
+            "start_index": 0,
+            "end_index": 4,
+        },
+        "search_result": {
+            "url": "https://pplx.example",
+            "title": "PPLX",
+            "source": "web",
+            "snippet": "snippet",
+        },
+    }
     assert fake_responses.payload["preset"] == "pro-search"
     assert "tools" not in fake_responses.payload
     assert fake_responses.payload["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
+
+
+def test_perplexity_adapter_does_not_return_uncited_search_results() -> None:
+    class FakePerplexityResponse:
+        output_text = "perplexity answer"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "perplexity answer",
+                            }
+                        ],
+                    },
+                    {
+                        "type": "search_results",
+                        "results": [
+                            {
+                                "url": "https://www.news.example/story",
+                                "title": "Example News",
+                                "source": "web",
+                                "snippet": "snippet",
+                            }
+                        ],
+                    },
+                ]
+            }
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return FakePerplexityResponse()
+
+    adapter = PerplexityAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(responses=FakeResponses())
+
+    response = adapter.run(
+        prompt="hello",
+        model="sonar-pro",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert response.citations == []
 
 
 def test_perplexity_adapter_prefixes_provider_for_raw_model() -> None:

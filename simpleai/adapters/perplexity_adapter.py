@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, ClassVar, Sequence
+from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
@@ -19,6 +20,7 @@ from simpleai.types import AdapterResponse, Citation, PromptInput
 class PerplexityAdapter(BaseAdapter):
     provider_name = "perplexity"
     supports_binary_files = False
+    _GENERIC_SOURCE_LABELS: ClassVar[set[str]] = {"web"}
 
     _PRESET_ALIASES: ClassVar[dict[str, str]] = {
         "fast-search": "fast-search",
@@ -107,39 +109,97 @@ class PerplexityAdapter(BaseAdapter):
 
     def _extract_citations(self, response_dict: dict[str, Any]) -> list[Citation]:
         citations: list[Citation] = []
+        seen: set[tuple[Any, ...]] = set()
+
+        search_results: list[dict[str, Any]] = []
+        search_results_by_url: dict[str, dict[str, Any]] = {}
+        for output_item in response_dict.get("output", []):
+            if output_item.get("type") != "search_results":
+                continue
+            for result in output_item.get("results") or []:
+                if not isinstance(result, dict):
+                    continue
+                search_results.append(result)
+                url = result.get("url")
+                if url and url not in search_results_by_url:
+                    search_results_by_url[url] = result
+
+        def append_citation(
+            *,
+            url: str | None,
+            title: str | None,
+            source: str | None,
+            snippet: str | None = None,
+            start_index: int | None = None,
+            end_index: int | None = None,
+            raw: dict[str, Any],
+        ) -> None:
+            if not url and not title and not source:
+                return
+            source_label = self._normalize_source_label(url=url, title=title, source=source)
+            key = (url, title, source_label, snippet, start_index, end_index)
+            if key in seen:
+                return
+            seen.add(key)
+            citations.append(
+                Citation(
+                    provider=self.provider_name,
+                    url=url,
+                    title=title,
+                    source=source_label,
+                    snippet=snippet,
+                    start_index=start_index,
+                    end_index=end_index,
+                    raw=raw,
+                )
+            )
 
         for output_item in response_dict.get("output", []):
-            out_type = output_item.get("type")
-
-            if out_type == "message":
-                for part in output_item.get("content", []):
-                    for annotation in part.get("annotations") or []:
-                        citations.append(
-                            Citation(
-                                provider=self.provider_name,
-                                url=annotation.get("url"),
-                                title=annotation.get("title"),
-                                source=annotation.get("url"),
-                                start_index=annotation.get("start_index"),
-                                end_index=annotation.get("end_index"),
-                                raw=annotation,
-                            )
-                        )
-
-            if out_type == "search_results":
-                for result in output_item.get("results") or []:
-                    citations.append(
-                        Citation(
-                            provider=self.provider_name,
-                            url=result.get("url"),
-                            title=result.get("title"),
-                            source=result.get("source"),
-                            snippet=result.get("snippet"),
-                            raw=result,
-                        )
+            if output_item.get("type") != "message":
+                continue
+            for part in output_item.get("content", []):
+                for annotation in part.get("annotations") or []:
+                    if not isinstance(annotation, dict):
+                        continue
+                    url = annotation.get("url")
+                    matched_result = search_results_by_url.get(url) if url else None
+                    title = annotation.get("title") or (matched_result or {}).get("title")
+                    raw = annotation
+                    if matched_result:
+                        raw = {"annotation": annotation, "search_result": matched_result}
+                    append_citation(
+                        url=url,
+                        title=title,
+                        source=annotation.get("source") or (matched_result or {}).get("source"),
+                        snippet=(matched_result or {}).get("snippet"),
+                        start_index=annotation.get("start_index"),
+                        end_index=annotation.get("end_index"),
+                        raw=raw,
                     )
 
         return citations
+
+    def _normalize_source_label(
+        self,
+        *,
+        url: str | None,
+        title: str | None,
+        source: str | None,
+    ) -> str | None:
+        if title:
+            return title
+
+        if source and source.strip().lower() not in self._GENERIC_SOURCE_LABELS:
+            return source
+
+        if url:
+            hostname = urlparse(url).hostname or ""
+            if hostname.startswith("www."):
+                hostname = hostname[4:]
+            if hostname:
+                return hostname
+
+        return source or url
 
     def run(
         self,
