@@ -199,7 +199,15 @@ class AnthropicAdapter(BaseAdapter):
         last_error: Exception | None = None
         for attempt in range(self._max_retries + 1):
             try:
-                return self.client.messages.create(**payload)
+                try:
+                    return self.client.messages.create(**payload)
+                except ValueError as exc:
+                    # The Anthropic SDK raises a ValueError if max_tokens could result in a 
+                    # response longer than 10 minutes, requiring the use of the streaming API.
+                    if "Streaming is required" in str(exc):
+                        with self.client.messages.stream(**payload) as stream:
+                            return stream.get_final_message()
+                    raise
             except RateLimitError as exc:
                 last_error = exc
                 if attempt < self._max_retries:
@@ -245,6 +253,10 @@ class AnthropicAdapter(BaseAdapter):
                     }
                 ]
                 payload["tool_choice"] = {"type": "any"}
+                payload.setdefault(
+                    "system",
+                    "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
+                )
 
             if output_format is not None:
                 payload["output_config"] = {
@@ -269,7 +281,9 @@ class AnthropicAdapter(BaseAdapter):
             if return_citations and require_search and output_format is not None and not citations and not self._skip_citation_followup:
                 structured_preview = text.strip()[:4000] if text else ""
                 citation_prompt = (
-                    "Use web search and return citations supporting this structured answer. "
+                    "You are an expert researcher. You must ALWAYS use the web_search tool to find citations supporting this structured answer. "
+                    "Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. "
+                    "Provide a robust, comprehensive list of citations for all factual claims. "
                     "Prefer official sources and include company homepages when relevant.\n\n"
                     f"Structured answer:\n{structured_preview}"
                 )

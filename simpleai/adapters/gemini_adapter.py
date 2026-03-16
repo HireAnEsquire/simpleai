@@ -205,7 +205,7 @@ class GeminiAdapter(BaseAdapter):
                 ]
                 config_kwargs.setdefault(
                     "system_instruction",
-                    "Use Google Search to ground your answer and provide citations to sources. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error.",
+                    "You are an expert researcher. You must ALWAYS use the Google Search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used.",
                 )
 
             if output_format is not None:

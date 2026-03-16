@@ -169,6 +169,10 @@ class OpenAIAdapter(BaseAdapter):
             if require_search:
                 payload["tools"] = [{"type": "web_search"}]
                 payload["tool_choice"] = "required"
+                payload.setdefault(
+                    "instructions",
+                    "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
+                )
                 if return_citations:
                     payload["include"] = ["web_search_call.action.sources"]
 

@@ -51,7 +51,7 @@ class GrokAdapter(BaseAdapter):
         if require_search:
             messages.append(
                 self.chat_helpers.system(
-                    "You must use the web_search tool before answering and ground your response in cited sources."
+                    "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
                 )
             )
 
