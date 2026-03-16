@@ -17,6 +17,16 @@ class Citation:
     url: str | None = None
     title: str | None = None
     source: str | None = None
+    original_url: str | None = None
+    original_title: str | None = None
+    original_source: str | None = None
+    source_key: str | None = None
+    analytics_source: str | None = None
+    analytics_title: str | None = None
+    analytics_url: str | None = None
+    normalization_version: str | None = None
+    source_confidence: str | None = None
+    title_confidence: str | None = None
     snippet: str | None = None
     citation_id: str | None = None
     start_index: int | None = None

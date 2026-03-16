@@ -40,6 +40,8 @@ def test_load_settings_defaults_when_no_sources(tmp_path: Path, monkeypatch) -> 
 
     assert settings["defaults"] == ["gemini", "openai", "claude", "grok", "perplexity"]
     assert "providers" in settings
+    assert "citation_normalization" in settings
+    assert settings["citation_normalization"]["source_alias_by_domain"] == {}
 
 
 def test_django_settings_take_priority(monkeypatch) -> None:
@@ -90,3 +92,24 @@ def test_get_provider_api_key_supports_grok_alias_env_var(monkeypatch) -> None:
     monkeypatch.setenv("GROK_API_KEY", "grok-test-key")
 
     assert get_provider_api_key(settings, "grok") == "grok-test-key"
+
+
+def test_load_settings_merges_citation_domain_aliases(tmp_path: Path) -> None:
+    settings_path = tmp_path / "ai_settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "citation_normalization": {
+                    "source_alias_by_domain": {
+                        "www.customnews.example": "Custom News Network"
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_settings(settings_file=settings_path)
+    assert settings["citation_normalization"]["source_alias_by_domain"] == {
+        "www.customnews.example": "Custom News Network"
+    }

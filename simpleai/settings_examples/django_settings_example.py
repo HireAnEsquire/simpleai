@@ -41,4 +41,10 @@ SIMPLEAI = {
         "django_logfile": "django",
         "logfile_location": "./simpleai.log",
     },
+    "citation_normalization": {
+        "source_alias_by_domain": {
+            "nytimes.com": "The New York Times",
+            "www.wsj.com": "The Wall Street Journal",
+        }
+    },
 }

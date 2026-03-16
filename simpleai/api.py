@@ -15,6 +15,7 @@ from .files import collect_file_paths, extract_text_from_files
 from .model_registry import resolve_provider_and_model
 from .settings import expected_provider_env_vars, get_provider_api_key, load_settings
 from .types import PromptInput
+from .citations import normalize_citations
 from .utils import coerce_output, validate_citations
 
 
@@ -110,6 +111,8 @@ def _build_log_args(
     require_search: bool,
     return_citations: bool,
     validate_urls: bool,
+    enrich_citations: bool,
+    source_alias_count: int,
     file: str | Path | None,
     files: str | Path | Iterable[str | Path] | None,
     binary_files: bool,
@@ -122,6 +125,8 @@ def _build_log_args(
         "require_search": require_search,
         "return_citations": return_citations,
         "validate_urls": validate_urls,
+        "enrich_citations": enrich_citations,
+        "source_alias_count": source_alias_count,
         "file": str(file) if file is not None else None,
         "files": [str(item) for item in files] if isinstance(files, (list, tuple, set)) else str(files) if files else None,
         "binary_files": binary_files,
@@ -138,6 +143,8 @@ def run_prompt(
     require_search: bool = False,
     return_citations: bool | None = None,
     validate_urls: bool | None = None,
+    enrich_citations: bool | str | None = None,
+    source_alias_by_domain: dict[str, str] | None = None,
     file: str | Path | None = None,
     files: str | Path | Iterable[str | Path] | None = None,
     binary_files: bool = True,
@@ -154,6 +161,9 @@ def run_prompt(
         require_search: If True, enables provider-native search tools.
         return_citations: Defaults to True when require_search is True, else False.
         validate_urls: If True, tests citation URLs to ensure they are alive (not 404 or 500+). Defaults to True if return_citations is enabled.
+        enrich_citations: If True, fetches citation pages best-effort and upgrades title/source metadata from HTML/JSON-LD metadata.
+        source_alias_by_domain: Optional per-call domain -> publication alias mapping for citation normalization.
+            This merges with settings.citation_normalization.source_alias_by_domain and overrides matching keys.
         file: Optional single file path.
         files: Optional single path or list of paths.
         binary_files: If True and adapter supports it, upload files as binary attachments.
@@ -172,6 +182,9 @@ def run_prompt(
         require_search_bool = bool(_coerce_bool(require_search, name="require_search", allow_none=False))
         return_citations_bool = _coerce_bool(return_citations, name="return_citations", allow_none=True)
         validate_urls_bool = _coerce_bool(validate_urls, name="validate_urls", allow_none=True)
+        enrich_citations_bool = _coerce_bool(
+            enrich_citations, name="enrich_citations", allow_none=True
+        )
         binary_files_bool = bool(_coerce_bool(binary_files, name="binary_files", allow_none=False))
 
         effective_return_citations = (
@@ -181,11 +194,22 @@ def run_prompt(
             effective_validate_urls = effective_return_citations
         else:
             effective_validate_urls = bool(validate_urls_bool)
+        effective_enrich_citations = bool(enrich_citations_bool) if enrich_citations_bool is not None else False
         # Citations require grounded search context; citations always force search on.
         effective_require_search = require_search_bool or effective_return_citations
 
         settings = load_settings(settings_file)
         provider, resolved_model = resolve_provider_and_model(settings, model)
+        citation_normalization = settings.get("citation_normalization", {})
+        effective_source_alias_by_domain: dict[str, str] = {}
+        if isinstance(citation_normalization, dict):
+            aliases = citation_normalization.get("source_alias_by_domain", {})
+            if isinstance(aliases, dict):
+                effective_source_alias_by_domain = dict(aliases)
+        if source_alias_by_domain is not None:
+            if not isinstance(source_alias_by_domain, dict):
+                raise SettingsError("source_alias_by_domain must be a dict[str, str] when provided.")
+            effective_source_alias_by_domain.update(source_alias_by_domain)
 
         providers = settings.get("providers", {})
         provider_settings = providers.get(provider, {}) if isinstance(providers, dict) else {}
@@ -234,6 +258,8 @@ def run_prompt(
                 require_search=effective_require_search,
                 return_citations=effective_return_citations,
                 validate_urls=effective_validate_urls,
+                enrich_citations=effective_enrich_citations,
+                source_alias_count=len(effective_source_alias_by_domain),
                 file=file,
                 files=files,
                 binary_files=binary_files_bool,
@@ -247,6 +273,8 @@ def run_prompt(
                 "require_search": effective_require_search,
                 "return_citations": effective_return_citations,
                 "validate_urls": effective_validate_urls,
+                "enrich_citations": effective_enrich_citations,
+                "source_alias_count": len(effective_source_alias_by_domain),
                 "binary_files": binary_files_bool,
                 "adapter_supports_binary": adapter.supports_binary_files,
                 "file_count": len(file_paths),
@@ -294,8 +322,14 @@ def run_prompt(
                     continue
                 # If we've exhausted attempts or if it's not a schema-related ValueError (though coerce_output raises ValueError)
                 raise
-        if effective_validate_urls and effective_return_citations:
-            validate_citations(adapter_response.citations)
+        if effective_return_citations:
+            adapter_response.citations = normalize_citations(
+                adapter_response.citations,
+                enrich_citations=effective_enrich_citations,
+                source_alias_by_domain=effective_source_alias_by_domain,
+            )
+            if effective_validate_urls:
+                validate_citations(adapter_response.citations)
             
         citations = [item.to_dict() for item in adapter_response.citations]
 

@@ -59,6 +59,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "django_logfile": "django",
         "logfile_location": "./simpleai.log",
     },
+    "citation_normalization": {
+        "source_alias_by_domain": {},
+    },
 }
 
 PROVIDER_ENV_VARS: dict[str, tuple[str, ...]] = {
