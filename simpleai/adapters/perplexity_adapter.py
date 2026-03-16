@@ -110,9 +110,10 @@ class PerplexityAdapter(BaseAdapter):
         prompt_list.append(instruction)
         return prompt_list
 
-    def _extract_citations(self, response_dict: dict[str, Any]) -> list[Citation]:
+    def _extract_citations(self, response_dict: dict[str, Any]) -> tuple[list[Citation], dict[tuple[str | None, int], int]]:
         citations: list[Citation] = []
-        seen: set[tuple[Any, ...]] = set()
+        seen_keys: dict[tuple[Any, ...], int] = {}
+        marker_mapping: dict[tuple[str | None, int], int] = {}
 
         search_results: list[dict[str, Any]] = []
         search_results_by_url: dict[str, dict[str, Any]] = {}
@@ -128,8 +129,12 @@ class PerplexityAdapter(BaseAdapter):
                     url = result.get("url")
                     if url and url not in search_results_by_url:
                         search_results_by_url[url] = result
+                    
+                    # Some responses use explicit IDs; others rely on 1-based index of the search result.
                     result_id = result.get("id")
-                    if isinstance(result_id, int) and result_id not in search_results_by_id:
+                    if not isinstance(result_id, int):
+                        result_id = len(search_results)
+                    if result_id not in search_results_by_id:
                         search_results_by_id[result_id] = result
             if output_type == "fetch_url_results":
                 for index, result in enumerate(output_item.get("contents") or [], start=1):
@@ -145,14 +150,14 @@ class PerplexityAdapter(BaseAdapter):
             start_index: int | None = None,
             end_index: int | None = None,
             raw: dict[str, Any],
-        ) -> None:
+        ) -> int | None:
             if not url and not title and not source:
-                return
+                return None
             source_label = self._normalize_source_label(url=url, title=title, source=source)
             key = (url, title, source_label, snippet, start_index, end_index)
-            if key in seen:
-                return
-            seen.add(key)
+            if key in seen_keys:
+                return seen_keys[key]
+            
             citations.append(
                 Citation(
                     provider=self.provider_name,
@@ -165,6 +170,9 @@ class PerplexityAdapter(BaseAdapter):
                     raw=raw,
                 )
             )
+            new_idx = len(citations)
+            seen_keys[key] = new_idx
+            return new_idx
 
         for output_item in response_dict.get("output", []):
             if output_item.get("type") != "message":
@@ -194,27 +202,31 @@ class PerplexityAdapter(BaseAdapter):
                         fetch_result = fetch_results_by_index.get(result_index)
                         if not fetch_result:
                             continue
-                        append_citation(
+                        new_idx = append_citation(
                             url=fetch_result.get("url"),
                             title=fetch_result.get("title"),
                             source=None,
                             snippet=fetch_result.get("snippet"),
                             raw={"citation_marker": marker, "fetch_url_result": fetch_result},
                         )
+                        if new_idx is not None:
+                            marker_mapping[(result_type, result_index)] = new_idx
                         continue
 
                     search_result = search_results_by_id.get(result_index)
                     if not search_result:
                         continue
-                    append_citation(
+                    new_idx = append_citation(
                         url=search_result.get("url"),
                         title=search_result.get("title"),
                         source=search_result.get("source"),
                         snippet=search_result.get("snippet"),
                         raw={"citation_marker": marker, "search_result": search_result},
                     )
+                    if new_idx is not None:
+                        marker_mapping[(result_type, result_index)] = new_idx
 
-        return citations
+        return citations, marker_mapping
 
     def _extract_citation_references(self, text: str) -> list[tuple[str, str | None, int]]:
         references: list[tuple[str, str | None, int]] = []
@@ -327,7 +339,32 @@ class PerplexityAdapter(BaseAdapter):
                             chunks.append(part.get("text", ""))
                 text = "".join(chunks)
 
-            citations = self._extract_citations(response_dict) if return_citations else []
+            citations = []
+            if return_citations:
+                citations, marker_mapping = self._extract_citations(response_dict)
+                if marker_mapping and text:
+                    def rewrite_citations(match: re.Match) -> str:
+                        raw_content = match.group(1).strip()
+                        parts = [p.strip() for p in raw_content.split(",")]
+                        new_parts = []
+                        for p in parts:
+                            token_match = self._CITATION_TOKEN_RE.fullmatch(p)
+                            if token_match:
+                                kind = token_match.group("kind")
+                                idx = int(token_match.group("index"))
+                                new_idx = marker_mapping.get((kind, idx))
+                                if new_idx is not None:
+                                    new_parts.append(str(new_idx))
+                                else:
+                                    new_parts.append(p)
+                            else:
+                                new_parts.append(p)
+                        if not new_parts:
+                            return ""
+                        return f"[{', '.join(new_parts)}]"
+
+                    text = self._CITATION_BLOCK_RE.sub(rewrite_citations, text)
+            
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 
         except Exception as exc:  # pragma: no cover - network/provider behavior
