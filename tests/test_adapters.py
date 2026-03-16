@@ -709,6 +709,138 @@ def test_perplexity_adapter_does_not_return_uncited_search_results() -> None:
     assert response.citations == []
 
 
+def test_perplexity_adapter_returns_cited_search_results_from_text_markers() -> None:
+    class FakePerplexityResponse:
+        output_text = "perplexity answer [1][2]"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "perplexity answer [1][2]",
+                            }
+                        ],
+                    },
+                    {
+                        "type": "search_results",
+                        "results": [
+                            {
+                                "id": 1,
+                                "url": "https://apps.example",
+                                "title": "Apps Directory",
+                                "source": "web",
+                                "snippet": "apps snippet",
+                            },
+                            {
+                                "id": 2,
+                                "url": "https://platforms.example",
+                                "title": "Gig Platforms",
+                                "source": "web",
+                                "snippet": "platform snippet",
+                            },
+                        ],
+                    },
+                ]
+            }
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return FakePerplexityResponse()
+
+    adapter = PerplexityAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(responses=FakeResponses())
+
+    response = adapter.run(
+        prompt="hello",
+        model="sonar-pro",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert len(response.citations) == 2
+    assert response.citations[0].url == "https://apps.example"
+    assert response.citations[0].source == "Apps Directory"
+    assert response.citations[0].raw == {
+        "citation_marker": "[1]",
+        "search_result": {
+            "id": 1,
+            "url": "https://apps.example",
+            "title": "Apps Directory",
+            "source": "web",
+            "snippet": "apps snippet",
+        },
+    }
+    assert response.citations[1].url == "https://platforms.example"
+    assert response.citations[1].source == "Gig Platforms"
+
+
+def test_perplexity_adapter_returns_cited_fetch_url_results_from_typed_markers() -> None:
+    class FakePerplexityResponse:
+        output_text = "perplexity answer [page:1]"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "perplexity answer [page:1]",
+                            }
+                        ],
+                    },
+                    {
+                        "type": "fetch_url_results",
+                        "contents": [
+                            {
+                                "url": "https://page.example",
+                                "title": "Fetched Page",
+                                "snippet": "page snippet",
+                            }
+                        ],
+                    },
+                ]
+            }
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return FakePerplexityResponse()
+
+    adapter = PerplexityAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(responses=FakeResponses())
+
+    response = adapter.run(
+        prompt="hello",
+        model="perplexity/sonar",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert len(response.citations) == 1
+    assert response.citations[0].url == "https://page.example"
+    assert response.citations[0].title == "Fetched Page"
+    assert response.citations[0].source == "Fetched Page"
+    assert response.citations[0].raw == {
+        "citation_marker": "[page:1]",
+        "fetch_url_result": {
+            "url": "https://page.example",
+            "title": "Fetched Page",
+            "snippet": "page snippet",
+        },
+    }
+
+
 def test_perplexity_adapter_prefixes_provider_for_raw_model() -> None:
     class FakePerplexityResponse:
         output_text = "ok"

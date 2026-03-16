@@ -6,6 +6,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, ClassVar, Sequence
 from urllib.parse import urlparse
 
@@ -21,6 +22,8 @@ class PerplexityAdapter(BaseAdapter):
     provider_name = "perplexity"
     supports_binary_files = False
     _GENERIC_SOURCE_LABELS: ClassVar[set[str]] = {"web"}
+    _CITATION_BLOCK_RE: ClassVar[re.Pattern[str]] = re.compile(r"\[([^\[\]]+)\]")
+    _CITATION_TOKEN_RE: ClassVar[re.Pattern[str]] = re.compile(r"(?:(?P<kind>[a-z_]+):)?(?P<index>\d+)$")
 
     _PRESET_ALIASES: ClassVar[dict[str, str]] = {
         "fast-search": "fast-search",
@@ -113,16 +116,25 @@ class PerplexityAdapter(BaseAdapter):
 
         search_results: list[dict[str, Any]] = []
         search_results_by_url: dict[str, dict[str, Any]] = {}
+        search_results_by_id: dict[int, dict[str, Any]] = {}
+        fetch_results_by_index: dict[int, dict[str, Any]] = {}
         for output_item in response_dict.get("output", []):
-            if output_item.get("type") != "search_results":
-                continue
-            for result in output_item.get("results") or []:
-                if not isinstance(result, dict):
-                    continue
-                search_results.append(result)
-                url = result.get("url")
-                if url and url not in search_results_by_url:
-                    search_results_by_url[url] = result
+            output_type = output_item.get("type")
+            if output_type == "search_results":
+                for result in output_item.get("results") or []:
+                    if not isinstance(result, dict):
+                        continue
+                    search_results.append(result)
+                    url = result.get("url")
+                    if url and url not in search_results_by_url:
+                        search_results_by_url[url] = result
+                    result_id = result.get("id")
+                    if isinstance(result_id, int) and result_id not in search_results_by_id:
+                        search_results_by_id[result_id] = result
+            if output_type == "fetch_url_results":
+                for index, result in enumerate(output_item.get("contents") or [], start=1):
+                    if isinstance(result, dict) and index not in fetch_results_by_index:
+                        fetch_results_by_index[index] = result
 
         def append_citation(
             *,
@@ -158,6 +170,7 @@ class PerplexityAdapter(BaseAdapter):
             if output_item.get("type") != "message":
                 continue
             for part in output_item.get("content", []):
+                part_text = part.get("text") or ""
                 for annotation in part.get("annotations") or []:
                     if not isinstance(annotation, dict):
                         continue
@@ -176,8 +189,55 @@ class PerplexityAdapter(BaseAdapter):
                         end_index=annotation.get("end_index"),
                         raw=raw,
                     )
+                for marker, result_type, result_index in self._extract_citation_references(part_text):
+                    if result_type == "page":
+                        fetch_result = fetch_results_by_index.get(result_index)
+                        if not fetch_result:
+                            continue
+                        append_citation(
+                            url=fetch_result.get("url"),
+                            title=fetch_result.get("title"),
+                            source=None,
+                            snippet=fetch_result.get("snippet"),
+                            raw={"citation_marker": marker, "fetch_url_result": fetch_result},
+                        )
+                        continue
+
+                    search_result = search_results_by_id.get(result_index)
+                    if not search_result:
+                        continue
+                    append_citation(
+                        url=search_result.get("url"),
+                        title=search_result.get("title"),
+                        source=search_result.get("source"),
+                        snippet=search_result.get("snippet"),
+                        raw={"citation_marker": marker, "search_result": search_result},
+                    )
 
         return citations
+
+    def _extract_citation_references(self, text: str) -> list[tuple[str, str | None, int]]:
+        references: list[tuple[str, str | None, int]] = []
+        if not text:
+            return references
+
+        for match in self._CITATION_BLOCK_RE.finditer(text):
+            raw_content = match.group(1).strip()
+            if not raw_content:
+                continue
+            parts = [part.strip() for part in raw_content.split(",")]
+            for part in parts:
+                token_match = self._CITATION_TOKEN_RE.fullmatch(part)
+                if not token_match:
+                    continue
+                references.append(
+                    (
+                        match.group(0),
+                        token_match.group("kind"),
+                        int(token_match.group("index")),
+                    )
+                )
+        return references
 
     def _normalize_source_label(
         self,
