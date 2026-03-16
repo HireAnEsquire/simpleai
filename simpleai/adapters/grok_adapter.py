@@ -79,15 +79,8 @@ class GrokAdapter(BaseAdapter):
     def _extract_citations(self, response: Any) -> list[Citation]:
         citations: list[Citation] = []
 
-        # Top-level citations are usually URLs/domains.
-        for source in getattr(response, "citations", []) or []:
-            citations.append(
-                Citation(
-                    provider=self.provider_name,
-                    source=str(source),
-                    url=str(source) if str(source).startswith("http") else None,
-                )
-            )
+        # We intentionally ignore response.citations (which contains all retrieved results)
+        # and only extract inline_citations, which map to actual markers in the generated text.
 
         # Inline citations contain structured metadata and positions.
         for inline in getattr(response, "inline_citations", []) or []:

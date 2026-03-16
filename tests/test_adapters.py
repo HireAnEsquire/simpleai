@@ -561,10 +561,9 @@ def test_grok_adapter_payload_and_citations(tmp_path: Path) -> None:
     )
 
     assert response.text == "grok answer"
-    assert response.citations[0].source == "https://grok.example"
-    assert response.citations[1].title == "Grok Article"
-    assert response.citations[1].raw["title"] == "Grok Article"
-    assert response.citations[1].url == "https://grok.example"
+    assert response.citations[0].title == "Grok Article"
+    assert response.citations[0].raw["title"] == "Grok Article"
+    assert response.citations[0].url == "https://grok.example"
     assert fake_chat.payload["model"] == "grok-4-1-fast-reasoning"
     assert fake_chat.payload["tools"] == ["web_search_tool"]
     assert fake_chat.payload["tool_choice"] == "required"

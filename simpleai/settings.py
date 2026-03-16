@@ -38,7 +38,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         },
         "openai": {
             "api_key": None,
-            "default_model": "gpt-5.2",
+            "default_model": "gpt-5.4",
             "max_output_tokens": 128000,
             "base_url": None,
         },

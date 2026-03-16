@@ -10,6 +10,16 @@ from .settings import canonical_provider_name, get_provider_api_key
 # Known model IDs from official provider model docs as of 2026-02-06.
 MODEL_PROVIDER_MAP: dict[str, str] = {
     # OpenAI
+    "gpt-5.4": "openai",
+    "gpt-5.4-mini": "openai",
+    "gpt-5.4-nano": "openai",
+    "gpt-5.4-pro": "openai",
+    "gpt-5.4-chat-latest": "openai",
+    "gpt-5.3": "openai",
+    "gpt-5.3-mini": "openai",
+    "gpt-5.3-nano": "openai",
+    "gpt-5.3-pro": "openai",
+    "gpt-5.3-chat-latest": "openai",
     "gpt-5.3-codex": "openai",
     "gpt-5.3-codex-spark": "openai",
     "gpt-oss-120b": "openai",
