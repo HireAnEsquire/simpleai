@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import mimetypes
 import os
+import sys
 import uuid
 import zipfile
 from pathlib import Path
@@ -59,6 +60,12 @@ from simpleai.files import extract_text_from_files
 from simpleai.types import AdapterResponse, Citation, PromptInput
 
 logger = logging.getLogger(__name__)
+
+
+def _emit_gemini_file_event(message: str, level: int = logging.INFO) -> None:
+    """Log and mirror to stderr so messages show in log files and the terminal."""
+    logger.log(level, message)
+    print(message, file=sys.stderr, flush=True)
 
 
 def _sniff_vertex_media_mime(path: Path) -> str | None:
@@ -182,6 +189,61 @@ class GeminiAdapter(BaseAdapter):
             self._vertexai_gcs_bucket
         )
 
+    def _vertex_append_text_fallback_for_path(self, path: Path, contents: list[Any]) -> None:
+        """Append one local file as extracted text (Vertex when GCS upload is skipped)."""
+        try:
+            extracted = extract_text_from_files([path])
+            for item in extracted:
+                contents.append(f"[File: {item.path.name}]\n{item.text}")
+            _emit_gemini_file_event(
+                "Gemini adapter: text extraction fallback succeeded "
+                f"path={path!s}"
+            )
+        except FileExtractionError:
+            _emit_gemini_file_event(
+                "Gemini adapter: structured text extraction failed; "
+                f"trying UTF-8 read path={path!s}",
+                logging.WARNING,
+            )
+            try:
+                raw = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                _emit_gemini_file_event(
+                    "Gemini adapter: text fallback failed "
+                    f"path={path!s}: {exc}",
+                    logging.ERROR,
+                )
+                raise ProviderError(
+                    f"Could not read file for text fallback: {path.name}"
+                ) from exc
+            contents.append(f"[File: {path.name}]\n{raw}")
+            _emit_gemini_file_event(
+                "Gemini adapter: UTF-8 text fallback succeeded "
+                f"path={path!s}"
+            )
+
+    def _try_delete_gcs_object(self, object_name: str, *, reason: str) -> None:
+        """Best-effort delete; avoids orphaned objects after failed or bad uploads."""
+        if not self._vertexai_gcs_bucket:
+            return
+        try:
+            storage_client = self._get_storage_client()
+            bucket = storage_client.bucket(self._vertexai_gcs_bucket)
+            blob = bucket.blob(object_name)
+            if not blob.exists():
+                return
+            blob.delete()
+            _emit_gemini_file_event(
+                "Gemini adapter: best-effort GCS delete succeeded "
+                f"({reason}) object={object_name!r}"
+            )
+        except Exception as exc:
+            _emit_gemini_file_event(
+                "Gemini adapter: best-effort GCS delete failed "
+                f"({reason}) object={object_name!r}: {exc}",
+                logging.WARNING,
+            )
+
     def _get_storage_client(self) -> Any:
         if self._storage_client is not None:
             return self._storage_client
@@ -198,12 +260,83 @@ class GeminiAdapter(BaseAdapter):
     def _upload_file_to_gcs(self, path: Path, *, mime_type: str) -> tuple[str, str]:
         if not self._vertexai_gcs_bucket:
             raise ProviderError("Missing vertexai_gcs_bucket for Vertex file uploads.")
+        try:
+            local_size = path.stat().st_size
+        except OSError as exc:
+            raise ProviderError(f"Cannot stat file for GCS upload: {path}") from exc
+        if local_size == 0:
+            raise ProviderError(
+                "GCS upload must not be called for 0-byte files; use text fallback."
+            )
+
         object_name = f"{self._vertexai_gcs_prefix}/{uuid.uuid4().hex}-{path.name}"
+        _emit_gemini_file_event(
+            "Gemini adapter: starting GCS upload "
+            f"path={path!s} mime_type={mime_type} local_bytes={local_size} "
+            f"bucket={self._vertexai_gcs_bucket!r} object={object_name!r}"
+        )
         storage_client = self._get_storage_client()
         bucket = storage_client.bucket(self._vertexai_gcs_bucket)
         blob = bucket.blob(object_name)
-        blob.upload_from_filename(str(path), content_type=mime_type)
-        return f"gs://{self._vertexai_gcs_bucket}/{object_name}", object_name
+        try:
+            blob.upload_from_filename(str(path), content_type=mime_type)
+        except Exception as exc:
+            _emit_gemini_file_event(
+                f"Gemini adapter: GCS upload failed path={path!s}: {exc}",
+                logging.ERROR,
+            )
+            self._try_delete_gcs_object(
+                object_name,
+                reason=(
+                    "upload failure (may leave 0-byte or partial object without "
+                    "cleanup)"
+                ),
+            )
+            raise
+        try:
+            blob.reload()
+        except Exception as exc:
+            _emit_gemini_file_event(
+                f"Gemini adapter: GCS blob.reload() after upload failed "
+                f"path={path!s} object={object_name!r}: {exc}",
+                logging.ERROR,
+            )
+            self._try_delete_gcs_object(object_name, reason="reload failed after upload")
+            raise ProviderError(
+                f"Could not verify GCS upload for {path.name}"
+            ) from exc
+
+        remote_size = blob.size
+        if remote_size is None:
+            _emit_gemini_file_event(
+                f"Gemini adapter: GCS blob has no size after upload "
+                f"object={object_name!r}",
+                logging.ERROR,
+            )
+            self._try_delete_gcs_object(object_name, reason="missing size after upload")
+            raise ProviderError(f"GCS upload verification failed for {path.name}")
+
+        if remote_size != local_size:
+            _emit_gemini_file_event(
+                "Gemini adapter: GCS size mismatch after upload "
+                f"local_bytes={local_size} remote_bytes={remote_size} "
+                f"object={object_name!r}. "
+                "If remote is 0, common causes: interrupted upload, resumable "
+                "upload abort leaving an empty object, or storage race.",
+                logging.ERROR,
+            )
+            self._try_delete_gcs_object(object_name, reason="size mismatch after upload")
+            raise ProviderError(
+                f"GCS upload size mismatch for {path.name}: "
+                f"local={local_size} remote={remote_size}"
+            )
+
+        uri = f"gs://{self._vertexai_gcs_bucket}/{object_name}"
+        _emit_gemini_file_event(
+            f"Gemini adapter: GCS upload verified uri={uri!s} "
+            f"bytes={remote_size}"
+        )
+        return uri, object_name
 
     def _cleanup_gcs_uploads(
         self,
@@ -221,7 +354,38 @@ class GeminiAdapter(BaseAdapter):
             storage_client = self._get_storage_client()
             bucket = storage_client.bucket(self._vertexai_gcs_bucket)
             for object_name in uploaded_objects:
-                bucket.blob(object_name).delete()
+                blob = bucket.blob(object_name)
+                try:
+                    if not blob.exists():
+                        _emit_gemini_file_event(
+                            "Gemini adapter: GCS cleanup object already absent "
+                            f"object={object_name!r} bucket={self._vertexai_gcs_bucket!r}",
+                            logging.WARNING,
+                        )
+                        continue
+                    blob.reload()
+                    size_before = blob.size
+                    if size_before == 0:
+                        _emit_gemini_file_event(
+                            "Gemini adapter: GCS cleanup removing 0-byte object "
+                            f"object={object_name!r} bucket={self._vertexai_gcs_bucket!r}. "
+                            "Possible causes: empty local file was uploaded before "
+                            "skip logic, interrupted upload, failed upload leaving a "
+                            "placeholder, delete of a prior version failed, or "
+                            "vertexai_gcs_cleanup prevented earlier removal.",
+                            logging.WARNING,
+                        )
+                    blob.delete()
+                    _emit_gemini_file_event(
+                        "Gemini adapter: GCS cleanup deleted object "
+                        f"object={object_name!r} bytes_before_delete={size_before}"
+                    )
+                except Exception as exc:
+                    _emit_gemini_file_event(
+                        "Gemini adapter: GCS cleanup failed for "
+                        f"object={object_name!r}: {exc}",
+                        logging.ERROR,
+                    )
         except Exception:
             logger.warning(
                 "Failed cleaning up %d GCS upload(s) in bucket %s.",
@@ -244,34 +408,41 @@ class GeminiAdapter(BaseAdapter):
             if self._use_vertexai:
                 if self._vertexai_gcs_bucket:
                     for path in files:
+                        try:
+                            local_bytes = path.stat().st_size
+                        except OSError as exc:
+                            _emit_gemini_file_event(
+                                f"Gemini adapter: cannot stat file path={path!s}: {exc}",
+                                logging.ERROR,
+                            )
+                            raise ProviderError(
+                                f"Cannot read file for Vertex upload: {path}"
+                            ) from exc
+
+                        if local_bytes == 0:
+                            _emit_gemini_file_event(
+                                "Gemini adapter: local file is 0 bytes; skipping "
+                                "GCS upload (would create a 0-byte object) "
+                                f"path={path!s}. Using text extraction instead.",
+                                logging.WARNING,
+                            )
+                            self._vertex_append_text_fallback_for_path(
+                                path,
+                                contents,
+                            )
+                            continue
+
                         mime_type = _vertex_media_mime_type(path)
                         if mime_type is None:
-                            logger.warning(
-                                "Could not infer a Vertex-supported MIME type for "
-                                "%s; using extracted text instead of GCS upload.",
-                                path.name,
+                            _emit_gemini_file_event(
+                                "Gemini adapter: Vertex MIME type unknown; "
+                                f"falling back to text extraction path={path!s}",
+                                logging.WARNING,
                             )
-                            try:
-                                extracted = extract_text_from_files([path])
-                                for item in extracted:
-                                    contents.append(
-                                        f"[File: {item.path.name}]\n{item.text}"
-                                    )
-                            except FileExtractionError:
-                                try:
-                                    raw = path.read_text(
-                                        encoding="utf-8",
-                                        errors="replace",
-                                    )
-                                except OSError as exc:
-                                    raise ProviderError(
-                                        "Vertex file upload could not infer a "
-                                        f"supported MIME type for {path.name}, and "
-                                        "text fallback failed."
-                                    ) from exc
-                                contents.append(
-                                    f"[File: {path.name}]\n{raw}"
-                                )
+                            self._vertex_append_text_fallback_for_path(
+                                path,
+                                contents,
+                            )
                             continue
                         uri, object_name = self._upload_file_to_gcs(
                             path,
@@ -285,9 +456,17 @@ class GeminiAdapter(BaseAdapter):
                             )
                         )
                 else:
+                    _emit_gemini_file_event(
+                        "Gemini adapter: Vertex has no vertexai_gcs_bucket; "
+                        f"using text extraction for {len(files)} file(s)"
+                    )
                     extracted = extract_text_from_files(files)
                     for item in extracted:
                         contents.append(f"[File: {item.path.name}]\n{item.text}")
+                    _emit_gemini_file_event(
+                        "Gemini adapter: text extraction (no GCS bucket) "
+                        f"succeeded for {len(files)} file(s)"
+                    )
             else:
                 @retry(
                     retry=retry_if_exception(_is_retryable_gemini_error),
@@ -300,7 +479,23 @@ class GeminiAdapter(BaseAdapter):
                     return client.files.upload(file=str(p))
 
                 for path in files:
-                    uploaded = _upload(path)
+                    _emit_gemini_file_event(
+                        "Gemini adapter: starting Gemini Developer API "
+                        f"file upload path={path!s}"
+                    )
+                    try:
+                        uploaded = _upload(path)
+                    except Exception as exc:
+                        _emit_gemini_file_event(
+                            "Gemini adapter: Gemini Developer API file upload "
+                            f"failed path={path!s}: {exc}",
+                            logging.ERROR,
+                        )
+                        raise
+                    _emit_gemini_file_event(
+                        "Gemini adapter: Gemini Developer API file upload "
+                        f"succeeded path={path!s}"
+                    )
                     contents.append(uploaded)
 
         if isinstance(prompt, str):
