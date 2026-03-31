@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -18,6 +20,7 @@ from tenacity import (
 
 from simpleai.adapters.base import BaseAdapter
 from simpleai.exceptions import ProviderError
+from simpleai.files import extract_text_from_files
 from simpleai.types import AdapterResponse, Citation, PromptInput
 
 logger = logging.getLogger(__name__)
@@ -58,25 +61,125 @@ class GeminiAdapter(BaseAdapter):
         self.types = types
         self._genai = genai
         self._use_vertexai = use_vertexai
+        self._vertexai_gcs_bucket = (
+            provider_settings.get("vertexai_gcs_bucket")
+            or os.getenv("GEMINI_VERTEXAI_GCS_BUCKET")
+        )
+        self._vertexai_gcs_prefix = (
+            provider_settings.get("vertexai_gcs_prefix")
+            or os.getenv("GEMINI_VERTEXAI_GCS_PREFIX")
+            or "simpleai-uploads"
+        ).strip("/")
+        self._vertexai_gcs_cleanup = str(
+            provider_settings.get("vertexai_gcs_cleanup")
+            or os.getenv("GEMINI_VERTEXAI_GCS_CLEANUP")
+            or "always"
+        ).strip().lower()
+        if self._vertexai_gcs_cleanup not in {"always", "on_success", "never"}:
+            raise ProviderError(
+                "Invalid vertexai_gcs_cleanup value. Use one of: "
+                "'always', 'on_success', 'never'."
+            )
+        self._storage_client: Any | None = None
+        # google-genai blocks Client.files.upload when using Vertex AI.
+        # For Vertex, enable true binary files only when GCS bucket is configured.
+        self.supports_binary_files = (not self._use_vertexai) or bool(
+            self._vertexai_gcs_bucket
+        )
 
-    def _build_contents(self, prompt: PromptInput, files: Sequence[Path] | None, client: Any = None) -> Any:
+    def _get_storage_client(self) -> Any:
+        if self._storage_client is not None:
+            return self._storage_client
+        try:
+            from google.cloud import storage
+        except Exception as exc:
+            raise ProviderError(
+                "google-cloud-storage is required for Vertex GCS uploads. "
+                "Install it and configure vertexai_gcs_bucket."
+            ) from exc
+        self._storage_client = storage.Client(project=self._project)
+        return self._storage_client
+
+    def _upload_file_to_gcs(self, path: Path) -> tuple[str, str]:
+        if not self._vertexai_gcs_bucket:
+            raise ProviderError("Missing vertexai_gcs_bucket for Vertex file uploads.")
+        object_name = f"{self._vertexai_gcs_prefix}/{uuid.uuid4().hex}-{path.name}"
+        storage_client = self._get_storage_client()
+        bucket = storage_client.bucket(self._vertexai_gcs_bucket)
+        blob = bucket.blob(object_name)
+        mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        blob.upload_from_filename(str(path), content_type=mime_type)
+        return f"gs://{self._vertexai_gcs_bucket}/{object_name}", object_name
+
+    def _cleanup_gcs_uploads(
+        self,
+        uploaded_objects: Sequence[str],
+        *,
+        generation_succeeded: bool,
+    ) -> None:
+        if not uploaded_objects:
+            return
+        if self._vertexai_gcs_cleanup == "never":
+            return
+        if self._vertexai_gcs_cleanup == "on_success" and not generation_succeeded:
+            return
+        try:
+            storage_client = self._get_storage_client()
+            bucket = storage_client.bucket(self._vertexai_gcs_bucket)
+            for object_name in uploaded_objects:
+                bucket.blob(object_name).delete()
+        except Exception:
+            logger.warning(
+                "Failed cleaning up %d GCS upload(s) in bucket %s.",
+                len(uploaded_objects),
+                self._vertexai_gcs_bucket,
+                exc_info=True,
+            )
+
+    def _build_contents(
+        self,
+        prompt: PromptInput,
+        files: Sequence[Path] | None,
+        client: Any = None,
+    ) -> tuple[Any, list[str]]:
         client = client or self.client
         contents: list[Any] = []
+        uploaded_objects: list[str] = []
 
         if files:
-            @retry(
-                retry=retry_if_exception(_is_retryable_gemini_error),
-                wait=wait_exponential(multiplier=1, min=2, max=120),
-                stop=stop_after_attempt(9),
-                before_sleep=before_sleep_log(logger, logging.WARNING),
-                reraise=True,
-            )
-            def _upload(p: Path) -> Any:
-                return client.files.upload(file=str(p))
+            if self._use_vertexai:
+                if self._vertexai_gcs_bucket:
+                    for path in files:
+                        uri, object_name = self._upload_file_to_gcs(path)
+                        uploaded_objects.append(object_name)
+                        mime_type = (
+                            mimetypes.guess_type(path.name)[0]
+                            or "application/octet-stream"
+                        )
+                        contents.append(
+                            self.types.Part.from_uri(
+                                file_uri=uri,
+                                mime_type=mime_type,
+                            )
+                        )
+                else:
+                    extracted = extract_text_from_files(files)
+                    for item in extracted:
+                        contents.append(f"[File: {item.path.name}]\n{item.text}")
+            else:
+                @retry(
+                    retry=retry_if_exception(_is_retryable_gemini_error),
+                    wait=wait_exponential(multiplier=1, min=2, max=120),
+                    stop=stop_after_attempt(9),
+                    before_sleep=before_sleep_log(logger, logging.WARNING),
+                    reraise=True,
+                )
+                def _upload(p: Path) -> Any:
+                    return client.files.upload(file=str(p))
 
-            for path in files:
-                uploaded = _upload(path)
-                contents.append(uploaded)
+                for path in files:
+                    uploaded = _upload(path)
+                    contents.append(uploaded)
 
         if isinstance(prompt, str):
             contents.append(prompt)
@@ -84,8 +187,8 @@ class GeminiAdapter(BaseAdapter):
             contents.extend(str(item) for item in prompt)
 
         if len(contents) == 1:
-            return contents[0]
-        return contents
+            return contents[0], uploaded_objects
+        return contents, uploaded_objects
 
     def _extract_citations(self, response_dict: dict[str, Any]) -> list[Citation]:
         citations: list[Citation] = []
@@ -189,6 +292,8 @@ class GeminiAdapter(BaseAdapter):
         output_format: type[BaseModel] | None,
         adapter_options: dict[str, Any] | None,
     ) -> AdapterResponse:
+        generation_succeeded = False
+        uploaded_objects: list[str] = []
         try:
             client = self.client
             if getattr(self, "_use_vertexai", False) and model.startswith("gemini-3.1"):
@@ -216,7 +321,11 @@ class GeminiAdapter(BaseAdapter):
                 config_kwargs.update(adapter_options)
 
             config = self.types.GenerateContentConfig(**config_kwargs)
-            contents = self._build_contents(prompt, files, client=client)
+            contents, uploaded_objects = self._build_contents(
+                prompt,
+                files,
+                client=client,
+            )
 
             @retry(
                 retry=retry_if_exception(_is_retryable_gemini_error),
@@ -259,7 +368,14 @@ class GeminiAdapter(BaseAdapter):
                         logger.warning("Gemini hit MAX_TOKENS. The response may be incomplete.")
 
             citations = self._extract_citations(response_dict) if return_citations else []
+            generation_succeeded = True
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 
         except Exception as exc:  # pragma: no cover - network/provider behavior
             raise ProviderError(f"Gemini adapter failed: {exc}") from exc
+        finally:
+            if self._use_vertexai:
+                self._cleanup_gcs_uploads(
+                    uploaded_objects,
+                    generation_succeeded=generation_succeeded,
+                )

@@ -29,6 +29,9 @@ To access Vertex AI securely, you need to create a Service Account that your app
 4. (Optional) Provide a description, then click **Create and Continue**.
 5. In the **Grant this service account access to project** section, click the **Select a role** dropdown.
 6. Search for and select the **Vertex AI User** role. (This gives the account the permissions needed to use models).
+7. If you want true binary file uploads through `simpleai` on Vertex AI, also grant a storage role on your upload bucket:
+   - **Storage Object User** for read/write/delete object access, or
+   - a custom role with at least `storage.objects.create`, `storage.objects.get`, and `storage.objects.delete`.
 7. Click **Continue**, then **Done**.
 
 ## Step 4: Generate and Download the Credentials File
@@ -81,6 +84,9 @@ GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/simpleai-vertex-key.json"
 GEMINI_USE_VERTEXAI=true
 GEMINI_VERTEXAI_PROJECT=your-google-cloud-project-id
 GEMINI_VERTEXAI_LOCATION=us-central1
+GEMINI_VERTEXAI_GCS_BUCKET=your-upload-bucket
+GEMINI_VERTEXAI_GCS_PREFIX=simpleai-uploads
+GEMINI_VERTEXAI_GCS_CLEANUP=always
 ```
 
 **Via Django `settings.py` / `ai_settings.json`:**
@@ -90,9 +96,21 @@ GEMINI_VERTEXAI_LOCATION=us-central1
     "gemini": {
       "use_vertexai": true,
       "vertexai_project": "your-google-cloud-project-id",
-      "vertexai_location": "us-central1"
+      "vertexai_location": "us-central1",
+      "vertexai_gcs_bucket": "your-upload-bucket",
+      "vertexai_gcs_prefix": "simpleai-uploads",
+      "vertexai_gcs_cleanup": "always"
     }
   }
 }
 ```
 *(Make sure `GOOGLE_APPLICATION_CREDENTIALS` is still set in the environment where the app is running!)*
+
+## Vertex File Upload Behavior
+
+- If `use_vertexai=true` and `vertexai_gcs_bucket` is configured, `simpleai` uploads local files to GCS and passes `gs://...` URIs to Gemini (true binary path).
+- If `vertexai_gcs_bucket` is not configured, `simpleai` falls back to extracting file text and appending it to the prompt.
+- `vertexai_gcs_cleanup` controls object cleanup:
+  - `always` (default): delete uploaded objects after each request, whether success or failure.
+  - `on_success`: delete only when model generation succeeds.
+  - `never`: keep objects in the bucket.

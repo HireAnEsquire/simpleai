@@ -429,6 +429,7 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
         "vertexai_project": "test-project",
         "vertexai_location": "us-central1"
     })
+    assert adapter.supports_binary_files is False
     
     fake_genai = FakeGenAI()
     adapter._genai = fake_genai
@@ -450,6 +451,228 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
     assert fake_genai.client_instance is not None
     assert fake_genai.client_instance.kwargs.get("location") == "global"
     assert fake_genai.client_instance.models.payload is not None
+
+
+def test_gemini_adapter_vertexai_files_fallback_to_extracted_text(tmp_path: Path) -> None:
+    upload_file = tmp_path / "data.txt"
+    upload_file.write_text("resume text", encoding="utf-8")
+
+    class FakeGeminiResponse:
+        text = "gemini answer"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {}
+
+    class FakeModels:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def generate_content(self, **kwargs):
+            self.payload = kwargs
+            return FakeGeminiResponse()
+
+    class FakeFiles:
+        def upload(self, file: str):
+            raise AssertionError("Vertex fallback should not call files.upload")
+
+    fake_models = FakeModels()
+    adapter = GeminiAdapter({"api_key": "test"})
+    adapter._use_vertexai = True
+    adapter.supports_binary_files = False
+    adapter.client = SimpleNamespace(models=fake_models, files=FakeFiles())
+
+    response = adapter.run(
+        prompt="hello",
+        model="gemini-2.5-pro",
+        require_search=False,
+        return_citations=False,
+        files=[upload_file],
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert response.text == "gemini answer"
+    contents = fake_models.payload["contents"]
+    assert isinstance(contents, list)
+    assert "resume text" in contents[0]
+    assert contents[1] == "hello"
+
+
+def test_gemini_adapter_vertexai_uploads_files_to_gcs(tmp_path: Path) -> None:
+    upload_file = tmp_path / "data.txt"
+    upload_file.write_text("resume text", encoding="utf-8")
+
+    class FakeGeminiResponse:
+        text = "gemini answer"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {}
+
+    class FakeModels:
+        def __init__(self) -> None:
+            self.payload = None
+
+        def generate_content(self, **kwargs):
+            self.payload = kwargs
+            return FakeGeminiResponse()
+
+    class FakeBlob:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.uploaded: list[tuple[str, str]] = []
+            self.deleted = False
+
+        def upload_from_filename(self, filename: str, content_type: str):
+            self.uploaded.append((filename, content_type))
+
+        def delete(self) -> None:
+            self.deleted = True
+
+    class FakeBucket:
+        def __init__(self) -> None:
+            self.blobs: dict[str, FakeBlob] = {}
+
+        def blob(self, name: str) -> FakeBlob:
+            blob = self.blobs.get(name)
+            if blob is None:
+                blob = FakeBlob(name)
+                self.blobs[name] = blob
+            return blob
+
+    class FakeStorageClient:
+        def __init__(self) -> None:
+            self.bucket_obj = FakeBucket()
+            self.bucket_name = None
+
+        def bucket(self, name: str) -> FakeBucket:
+            self.bucket_name = name
+            return self.bucket_obj
+
+    adapter = GeminiAdapter(
+        {
+            "use_vertexai": True,
+            "vertexai_project": "test-project",
+            "vertexai_location": "us-central1",
+            "vertexai_gcs_bucket": "my-test-bucket",
+            "vertexai_gcs_prefix": "simpleai-test",
+            "vertexai_gcs_cleanup": "always",
+        }
+    )
+    assert adapter.supports_binary_files is True
+
+    fake_storage = FakeStorageClient()
+    adapter._storage_client = fake_storage
+    adapter.types = SimpleNamespace(
+        GenerateContentConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+        Part=SimpleNamespace(
+            from_uri=lambda **kwargs: {"file_data": kwargs}
+        ),
+    )
+    adapter.client = SimpleNamespace(models=FakeModels(), files=None)
+
+    response = adapter.run(
+        prompt="hello",
+        model="gemini-2.5-pro",
+        require_search=False,
+        return_citations=False,
+        files=[upload_file],
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert response.text == "gemini answer"
+    payload_contents = adapter.client.models.payload["contents"]
+    assert isinstance(payload_contents, list)
+    assert payload_contents[1] == "hello"
+    file_part = payload_contents[0]["file_data"]
+    assert file_part["mime_type"] == "text/plain"
+    assert file_part["file_uri"].startswith("gs://my-test-bucket/simpleai-test/")
+    assert fake_storage.bucket_name == "my-test-bucket"
+    uploaded_blob = next(iter(fake_storage.bucket_obj.blobs.values()))
+    assert uploaded_blob.uploaded
+    assert uploaded_blob.deleted is True
+
+
+def test_gemini_adapter_vertexai_gcs_cleanup_on_success_policy(tmp_path: Path) -> None:
+    upload_file = tmp_path / "data.txt"
+    upload_file.write_text("resume text", encoding="utf-8")
+
+    class FakeGeminiResponse:
+        text = "gemini answer"
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {}
+
+    class FakeModels:
+        def __init__(self, should_fail: bool) -> None:
+            self.should_fail = should_fail
+
+        def generate_content(self, **kwargs):
+            if self.should_fail:
+                raise RuntimeError("generation failed")
+            return FakeGeminiResponse()
+
+    class FakeBlob:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.deleted = False
+
+        def upload_from_filename(self, filename: str, content_type: str):
+            _ = (filename, content_type)
+
+        def delete(self) -> None:
+            self.deleted = True
+
+    class FakeBucket:
+        def __init__(self) -> None:
+            self.blobs: dict[str, FakeBlob] = {}
+
+        def blob(self, name: str) -> FakeBlob:
+            blob = self.blobs.get(name)
+            if blob is None:
+                blob = FakeBlob(name)
+                self.blobs[name] = blob
+            return blob
+
+    class FakeStorageClient:
+        def __init__(self) -> None:
+            self.bucket_obj = FakeBucket()
+
+        def bucket(self, name: str) -> FakeBucket:
+            _ = name
+            return self.bucket_obj
+
+    adapter = GeminiAdapter(
+        {
+            "use_vertexai": True,
+            "vertexai_project": "test-project",
+            "vertexai_location": "us-central1",
+            "vertexai_gcs_bucket": "my-test-bucket",
+            "vertexai_gcs_cleanup": "on_success",
+        }
+    )
+    adapter._storage_client = FakeStorageClient()
+    adapter.types = SimpleNamespace(
+        GenerateContentConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+        Part=SimpleNamespace(from_uri=lambda **kwargs: {"file_data": kwargs}),
+    )
+    adapter.client = SimpleNamespace(models=FakeModels(should_fail=True), files=None)
+
+    import pytest
+
+    with pytest.raises(Exception):
+        adapter.run(
+            prompt="hello",
+            model="gemini-2.5-pro",
+            require_search=False,
+            return_citations=False,
+            files=[upload_file],
+            output_format=None,
+            adapter_options=None,
+        )
+
+    uploaded_blob = next(iter(adapter._storage_client.bucket_obj.blobs.values()))
+    assert uploaded_blob.deleted is False
 
 def test_gemini_adapter_empty_response(tmp_path: Path) -> None:
     class FakeGeminiEmptyResponse:
