@@ -7,7 +7,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from simpleai.adapters.anthropic_adapter import AnthropicAdapter
-from simpleai.adapters.gemini_adapter import GeminiAdapter
+from simpleai.adapters.gemini_adapter import (
+    GeminiAdapter,
+    _vertex_media_mime_type,
+)
 from simpleai.adapters.grok_adapter import GrokAdapter
 from simpleai.adapters.openai_adapter import OpenAIAdapter
 from simpleai.adapters.perplexity_adapter import PerplexityAdapter
@@ -591,6 +594,19 @@ def test_gemini_adapter_vertexai_uploads_files_to_gcs(tmp_path: Path) -> None:
     uploaded_blob = next(iter(fake_storage.bucket_obj.blobs.values()))
     assert uploaded_blob.uploaded
     assert uploaded_blob.deleted is True
+
+
+def test_vertex_media_mime_sniffs_pdf_without_extension(tmp_path: Path) -> None:
+    path = tmp_path / "resume"
+    path.write_bytes(b"%PDF-1.4\n%EOF")
+    assert _vertex_media_mime_type(path) == "application/pdf"
+
+
+def test_vertex_media_mime_maps_common_extensions() -> None:
+    assert _vertex_media_mime_type(Path("x.pdf")) == "application/pdf"
+    assert _vertex_media_mime_type(Path("x.docx")) == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
 
 
 def test_gemini_adapter_vertexai_gcs_cleanup_on_success_policy(tmp_path: Path) -> None:

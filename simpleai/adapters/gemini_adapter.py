@@ -6,8 +6,43 @@ import logging
 import mimetypes
 import os
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any, Sequence
+
+# Vertex Gemini rejects application/octet-stream for file_uri parts; map extensions
+# and sniff bytes so we never send that type.
+_VERTEX_EXTENSION_MIME: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".md": "text/plain",
+    ".markdown": "text/plain",
+    ".json": "application/json",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".csv": "text/csv",
+    ".xml": "application/xml",
+    ".rtf": "application/rtf",
+    ".doc": "application/msword",
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ),
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ),
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".svg": "image/svg+xml",
+}
 
 from pydantic import BaseModel
 from tenacity import (
@@ -19,11 +54,71 @@ from tenacity import (
 )
 
 from simpleai.adapters.base import BaseAdapter
-from simpleai.exceptions import ProviderError
+from simpleai.exceptions import FileExtractionError, ProviderError
 from simpleai.files import extract_text_from_files
 from simpleai.types import AdapterResponse, Citation, PromptInput
 
 logger = logging.getLogger(__name__)
+
+
+def _sniff_vertex_media_mime(path: Path) -> str | None:
+    """Infer MIME type from file contents for Vertex file parts."""
+    try:
+        header = path.read_bytes()[:4096]
+    except OSError:
+        return None
+    if not header:
+        return None
+    if header.startswith(b"%PDF"):
+        return "application/pdf"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if header.startswith(b"RIFF") and len(header) >= 12 and header[8:12] == b"WEBP":
+        return "image/webp"
+    if header.startswith(b"PK\x03\x04"):
+        try:
+            with zipfile.ZipFile(path) as zf:
+                names = zf.namelist()
+                if "word/document.xml" in names:
+                    return (
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    )
+                if "xl/workbook.xml" in names:
+                    return (
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    )
+                if "ppt/presentation.xml" in names:
+                    return (
+                        "application/vnd.openxmlformats-officedocument."
+                        "presentationml.presentation"
+                    )
+        except (OSError, zipfile.BadZipFile, RuntimeError):
+            pass
+        return None
+    # Microsoft OLE Compound Document (legacy .doc, .xls, .ppt)
+    if header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return "application/msword"
+    return None
+
+
+def _vertex_media_mime_type(path: Path) -> str | None:
+    """Return a Vertex-supported MIME type for GCS-backed parts, or None for text fallback."""
+    ext = path.suffix.lower()
+    if ext in _VERTEX_EXTENSION_MIME:
+        return _VERTEX_EXTENSION_MIME[ext]
+    guessed, _ = mimetypes.guess_type(path.name)
+    if guessed and guessed != "application/octet-stream":
+        return guessed
+    sniffed = _sniff_vertex_media_mime(path)
+    if sniffed:
+        return sniffed
+    return None
 
 
 def _is_retryable_gemini_error(exc: BaseException) -> bool:
@@ -100,14 +195,13 @@ class GeminiAdapter(BaseAdapter):
         self._storage_client = storage.Client(project=self._project)
         return self._storage_client
 
-    def _upload_file_to_gcs(self, path: Path) -> tuple[str, str]:
+    def _upload_file_to_gcs(self, path: Path, *, mime_type: str) -> tuple[str, str]:
         if not self._vertexai_gcs_bucket:
             raise ProviderError("Missing vertexai_gcs_bucket for Vertex file uploads.")
         object_name = f"{self._vertexai_gcs_prefix}/{uuid.uuid4().hex}-{path.name}"
         storage_client = self._get_storage_client()
         bucket = storage_client.bucket(self._vertexai_gcs_bucket)
         blob = bucket.blob(object_name)
-        mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         blob.upload_from_filename(str(path), content_type=mime_type)
         return f"gs://{self._vertexai_gcs_bucket}/{object_name}", object_name
 
@@ -150,12 +244,40 @@ class GeminiAdapter(BaseAdapter):
             if self._use_vertexai:
                 if self._vertexai_gcs_bucket:
                     for path in files:
-                        uri, object_name = self._upload_file_to_gcs(path)
-                        uploaded_objects.append(object_name)
-                        mime_type = (
-                            mimetypes.guess_type(path.name)[0]
-                            or "application/octet-stream"
+                        mime_type = _vertex_media_mime_type(path)
+                        if mime_type is None:
+                            logger.warning(
+                                "Could not infer a Vertex-supported MIME type for "
+                                "%s; using extracted text instead of GCS upload.",
+                                path.name,
+                            )
+                            try:
+                                extracted = extract_text_from_files([path])
+                                for item in extracted:
+                                    contents.append(
+                                        f"[File: {item.path.name}]\n{item.text}"
+                                    )
+                            except FileExtractionError:
+                                try:
+                                    raw = path.read_text(
+                                        encoding="utf-8",
+                                        errors="replace",
+                                    )
+                                except OSError as exc:
+                                    raise ProviderError(
+                                        "Vertex file upload could not infer a "
+                                        f"supported MIME type for {path.name}, and "
+                                        "text fallback failed."
+                                    ) from exc
+                                contents.append(
+                                    f"[File: {path.name}]\n{raw}"
+                                )
+                            continue
+                        uri, object_name = self._upload_file_to_gcs(
+                            path,
+                            mime_type=mime_type,
                         )
+                        uploaded_objects.append(object_name)
                         contents.append(
                             self.types.Part.from_uri(
                                 file_uri=uri,
