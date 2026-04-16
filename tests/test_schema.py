@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from simpleai.schema import openai_response_schema
 
@@ -39,6 +39,12 @@ class TagsExample(BaseModel):
     tags: list[str] | None = None
 
 
+class DefaultsExample(BaseModel):
+    is_mla: bool = False
+    tags: list[str] = Field(default_factory=list)
+    optional_text: str | None = None
+
+
 def test_openai_schema_nullable_array_keeps_items_in_variant() -> None:
     """Regression: array schema made nullable must keep 'items' inside the
     anyOf variant, not as a sibling of anyOf.  OpenAI rejects the latter with
@@ -62,3 +68,13 @@ def test_openai_schema_nullable_array_keeps_items_in_variant() -> None:
     assert "items" not in tags_schema, (
         "items must not be a sibling of anyOf"
     )
+
+
+def test_openai_schema_keeps_defaulted_non_nullable_fields_non_nullable() -> None:
+    schema = openai_response_schema(DefaultsExample)
+    props = schema["properties"]
+
+    assert set(schema["required"]) == set(props.keys())
+    assert not _is_nullable(props["is_mla"])
+    assert not _is_nullable(props["tags"])
+    assert _is_nullable(props["optional_text"])

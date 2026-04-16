@@ -128,6 +128,30 @@ def _make_nullable(schema: dict[str, Any]) -> dict[str, Any]:
     return {"anyOf": [node, {"type": "null"}]}
 
 
+def _schema_allows_null(schema: dict[str, Any]) -> bool:
+    """Return True when a schema node already accepts null."""
+
+    node_type = schema.get("type")
+    if node_type == "null":
+        return True
+    if isinstance(node_type, list) and "null" in node_type:
+        return True
+
+    any_of = schema.get("anyOf")
+    if isinstance(any_of, list):
+        for item in any_of:
+            if isinstance(item, dict) and _schema_allows_null(item):
+                return True
+
+    one_of = schema.get("oneOf")
+    if isinstance(one_of, list):
+        for item in one_of:
+            if isinstance(item, dict) and _schema_allows_null(item):
+                return True
+
+    return False
+
+
 def enforce_openai_required_all_properties(schema: dict[str, Any]) -> dict[str, Any]:
     """OpenAI strict mode requires all object properties to be listed in required."""
 
@@ -150,7 +174,11 @@ def enforce_openai_required_all_properties(schema: dict[str, Any]) -> dict[str, 
                     required = set(node.get("required") or [])
                     all_keys = list(properties.keys())
                     for key in all_keys:
-                        if key not in required and isinstance(properties.get(key), dict):
+                        if (
+                            key not in required
+                            and isinstance(properties.get(key), dict)
+                            and _schema_allows_null(properties[key])
+                        ):
                             properties[key] = _make_nullable(properties[key])
                     node["required"] = all_keys
                 else:
