@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -136,6 +137,11 @@ def _build_log_args(
     }
 
 
+def _emit_file_mode_event(provider: str, message: str) -> None:
+    """Mirror key file handling mode decisions to the console."""
+    print(f"simpleai[{provider}] {message}", file=sys.stderr, flush=True)
+
+
 
 def run_prompt(
     prompt: PromptInput,
@@ -236,8 +242,23 @@ def run_prompt(
         file_paths = collect_file_paths(file=file, files=files)
         if file_paths:
             if binary_files_bool and adapter.supports_binary_files:
+                if provider in {"openai", "gemini"}:
+                    _emit_file_mode_event(
+                        provider,
+                        f"binary upload selected for {len(file_paths)} file(s)",
+                    )
                 adapter_files = file_paths
             else:
+                if provider in {"openai", "gemini"}:
+                    reason = (
+                        "binary_files=False"
+                        if not binary_files_bool
+                        else "adapter does not support binary uploads"
+                    )
+                    _emit_file_mode_event(
+                        provider,
+                        f"text extraction selected for {len(file_paths)} file(s) ({reason})",
+                    )
                 extracted = extract_text_from_files(file_paths)
                 prompt_payload = _append_extracted_files_to_prompt(
                     prompt_payload,

@@ -124,6 +124,21 @@ def test_run_prompt_extracts_files_when_binary_not_supported(monkeypatch, tmp_pa
     assert adapter.last_kwargs["files"] is None
 
 
+def test_run_prompt_prints_text_extraction_mode_for_openai(capsys, monkeypatch, tmp_path: Path) -> None:
+    adapter = DummyAdapter(supports_binary_files=False)
+    note = tmp_path / "note.txt"
+    note.write_text("attached content", encoding="utf-8")
+
+    monkeypatch.setattr("simpleai.api.load_settings", lambda settings_file=None: BASE_SETTINGS)
+    monkeypatch.setattr("simpleai.api.resolve_provider_and_model", lambda settings, model: ("openai", "gpt-5"))
+    monkeypatch.setattr("simpleai.api.get_adapter", lambda provider, provider_settings: adapter)
+
+    run_prompt("base prompt", model="openai", file=note, binary_files=True)
+
+    captured = capsys.readouterr()
+    assert "simpleai[openai] text extraction selected for 1 file(s)" in captured.err
+
+
 def test_run_prompt_passes_binary_files_when_supported(monkeypatch, tmp_path: Path) -> None:
     adapter = DummyAdapter(supports_binary_files=True)
     note = tmp_path / "note.txt"
@@ -138,6 +153,21 @@ def test_run_prompt_passes_binary_files_when_supported(monkeypatch, tmp_path: Pa
     files = adapter.last_kwargs["files"]
     assert files is not None
     assert files[0] == note.resolve()
+
+
+def test_run_prompt_prints_binary_upload_mode_for_openai(capsys, monkeypatch, tmp_path: Path) -> None:
+    adapter = DummyAdapter(supports_binary_files=True)
+    note = tmp_path / "note.txt"
+    note.write_text("attached content", encoding="utf-8")
+
+    monkeypatch.setattr("simpleai.api.load_settings", lambda settings_file=None: BASE_SETTINGS)
+    monkeypatch.setattr("simpleai.api.resolve_provider_and_model", lambda settings, model: ("openai", "gpt-5"))
+    monkeypatch.setattr("simpleai.api.get_adapter", lambda provider, provider_settings: adapter)
+
+    run_prompt("base prompt", model="openai", file=note, binary_files=True)
+
+    captured = capsys.readouterr()
+    assert "simpleai[openai] binary upload selected for 1 file(s)" in captured.err
 
 
 def test_run_prompt_merges_provider_kwargs(monkeypatch) -> None:

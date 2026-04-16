@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -12,6 +13,11 @@ from simpleai.adapters.base import BaseAdapter
 from simpleai.exceptions import ProviderError
 from simpleai.schema import openai_response_schema
 from simpleai.types import AdapterResponse, Citation, PromptInput
+
+
+def _emit_openai_file_event(message: str) -> None:
+    """Mirror OpenAI file upload events to console."""
+    print(message, file=sys.stderr, flush=True)
 
 
 class OpenAIAdapter(BaseAdapter):
@@ -157,8 +163,14 @@ class OpenAIAdapter(BaseAdapter):
             file_ids: list[str] = []
             if files:
                 for path in files:
+                    _emit_openai_file_event(
+                        f"OpenAI adapter: starting binary file upload path={path!s}"
+                    )
                     with path.open("rb") as handle:
                         uploaded = self.client.files.create(file=handle, purpose="user_data")
+                    _emit_openai_file_event(
+                        f"OpenAI adapter: binary file upload succeeded path={path!s}"
+                    )
                     file_ids.append(uploaded.id)
 
             payload: dict[str, Any] = {
