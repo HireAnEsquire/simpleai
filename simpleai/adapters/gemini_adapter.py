@@ -11,9 +11,9 @@ import zipfile
 from pathlib import Path
 from typing import Any, Sequence
 
-# Vertex Gemini rejects application/octet-stream for file_uri parts; map extensions
-# and sniff bytes so we never send that type.
-_VERTEX_EXTENSION_MIME: dict[str, str] = {
+# Vertex Gemini natively supports only specific mime types for binary parts.
+# For others (like docx, pptx), we fall back to text extraction.
+_GEMINI_SUPPORTED_MIME: dict[str, str] = {
     ".pdf": "application/pdf",
     ".txt": "text/plain",
     ".md": "text/plain",
@@ -23,17 +23,6 @@ _VERTEX_EXTENSION_MIME: dict[str, str] = {
     ".htm": "text/html",
     ".csv": "text/csv",
     ".xml": "application/xml",
-    ".rtf": "application/rtf",
-    ".doc": "application/msword",
-    ".docx": (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ),
-    ".ppt": "application/vnd.ms-powerpoint",
-    ".pptx": (
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    ),
-    ".xls": "application/vnd.ms-excel",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -68,8 +57,8 @@ def _emit_gemini_file_event(message: str, level: int = logging.INFO) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def _sniff_vertex_media_mime(path: Path) -> str | None:
-    """Infer MIME type from file contents for Vertex file parts."""
+def _sniff_gemini_media_mime(path: Path) -> str | None:
+    """Infer MIME type from file contents for natively supported file parts."""
     try:
         header = path.read_bytes()[:4096]
     except OSError:
@@ -86,45 +75,31 @@ def _sniff_vertex_media_mime(path: Path) -> str | None:
         return "image/gif"
     if header.startswith(b"RIFF") and len(header) >= 12 and header[8:12] == b"WEBP":
         return "image/webp"
-    if header.startswith(b"PK\x03\x04"):
-        try:
-            with zipfile.ZipFile(path) as zf:
-                names = zf.namelist()
-                if "word/document.xml" in names:
-                    return (
-                        "application/vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document"
-                    )
-                if "xl/workbook.xml" in names:
-                    return (
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    )
-                if "ppt/presentation.xml" in names:
-                    return (
-                        "application/vnd.openxmlformats-officedocument."
-                        "presentationml.presentation"
-                    )
-        except (OSError, zipfile.BadZipFile, RuntimeError):
-            pass
-        return None
-    # Microsoft OLE Compound Document (legacy .doc, .xls, .ppt)
-    if header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
-        return "application/msword"
     return None
 
 
-def _vertex_media_mime_type(path: Path) -> str | None:
-    """Return a Vertex-supported MIME type for GCS-backed parts, or None for text fallback."""
+_GEMINI_SUPPORTED_PREFIXES = (
+    "image/",
+    "audio/",
+    "video/",
+    "text/",
+)
+
+
+def _gemini_media_mime_type(path: Path) -> str | None:
+    """Return a Gemini-supported MIME type, or None for text fallback."""
     ext = path.suffix.lower()
-    if ext in _VERTEX_EXTENSION_MIME:
-        return _VERTEX_EXTENSION_MIME[ext]
+    if ext in _GEMINI_SUPPORTED_MIME:
+        return _GEMINI_SUPPORTED_MIME[ext]
+    
     guessed, _ = mimetypes.guess_type(path.name)
-    if guessed and guessed != "application/octet-stream":
+    if guessed and (guessed.startswith(_GEMINI_SUPPORTED_PREFIXES) or guessed in {"application/pdf", "application/json"}):
         return guessed
-    sniffed = _sniff_vertex_media_mime(path)
-    if sniffed:
+    
+    sniffed = _sniff_gemini_media_mime(path)
+    if sniffed and (sniffed.startswith(_GEMINI_SUPPORTED_PREFIXES) or sniffed in {"application/pdf", "application/json"}):
         return sniffed
+        
     return None
 
 
@@ -189,7 +164,7 @@ class GeminiAdapter(BaseAdapter):
             self._vertexai_gcs_bucket
         )
 
-    def _vertex_append_text_fallback_for_path(self, path: Path, contents: list[Any]) -> None:
+    def _append_text_fallback_for_path(self, path: Path, contents: list[Any]) -> None:
         """Append one local file as extracted text (Vertex when GCS upload is skipped)."""
         try:
             extracted = extract_text_from_files([path])
@@ -426,20 +401,20 @@ class GeminiAdapter(BaseAdapter):
                                 f"path={path!s}. Using text extraction instead.",
                                 logging.WARNING,
                             )
-                            self._vertex_append_text_fallback_for_path(
+                            self._append_text_fallback_for_path(
                                 path,
                                 contents,
                             )
                             continue
 
-                        mime_type = _vertex_media_mime_type(path)
+                        mime_type = _gemini_media_mime_type(path)
                         if mime_type is None:
                             _emit_gemini_file_event(
                                 "Gemini adapter: Vertex MIME type unknown; "
                                 f"falling back to text extraction path={path!s}",
                                 logging.WARNING,
                             )
-                            self._vertex_append_text_fallback_for_path(
+                            self._append_text_fallback_for_path(
                                 path,
                                 contents,
                             )
@@ -479,6 +454,43 @@ class GeminiAdapter(BaseAdapter):
                     return client.files.upload(file=str(p))
 
                 for path in files:
+                    try:
+                        local_bytes = path.stat().st_size
+                    except OSError as exc:
+                        _emit_gemini_file_event(
+                            f"Gemini adapter: cannot stat file path={path!s}: {exc}",
+                            logging.ERROR,
+                        )
+                        raise ProviderError(
+                            f"Cannot read file for Gemini upload: {path}"
+                        ) from exc
+
+                    if local_bytes == 0:
+                        _emit_gemini_file_event(
+                            "Gemini adapter: local file is 0 bytes; skipping "
+                            "Gemini Developer API file upload "
+                            f"path={path!s}. Using text extraction instead.",
+                            logging.WARNING,
+                        )
+                        self._append_text_fallback_for_path(
+                            path,
+                            contents,
+                        )
+                        continue
+
+                    mime_type = _gemini_media_mime_type(path)
+                    if mime_type is None:
+                        _emit_gemini_file_event(
+                            "Gemini adapter: Gemini Developer API MIME type unsupported; "
+                            f"falling back to text extraction path={path!s}",
+                            logging.WARNING,
+                        )
+                        self._append_text_fallback_for_path(
+                            path,
+                            contents,
+                        )
+                        continue
+
                     _emit_gemini_file_event(
                         "Gemini adapter: starting Gemini Developer API "
                         f"file upload path={path!s}"

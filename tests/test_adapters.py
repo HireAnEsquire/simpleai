@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from simpleai.adapters.anthropic_adapter import AnthropicAdapter
 from simpleai.adapters.gemini_adapter import (
     GeminiAdapter,
-    _vertex_media_mime_type,
+    _gemini_media_mime_type,
 )
 from simpleai.adapters.grok_adapter import GrokAdapter
 from simpleai.adapters.openai_adapter import OpenAIAdapter
@@ -389,7 +389,7 @@ def test_gemini_adapter_payload_and_citations(tmp_path: Path) -> None:
     assert response.citations[0].url == "https://gemini.example"
     assert fake_models.payload["model"] == "gemini-2.5-pro"
     assert fake_models.payload["config"].system_instruction == (
-        "Use Google Search to ground your answer and provide citations to sources. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error."
+        "You are an expert researcher. You must ALWAYS use the Google Search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
     )
 
 
@@ -524,12 +524,19 @@ def test_gemini_adapter_vertexai_uploads_files_to_gcs(tmp_path: Path) -> None:
             self.name = name
             self.uploaded: list[tuple[str, str]] = []
             self.deleted = False
+            self.size = 11
 
         def upload_from_filename(self, filename: str, content_type: str):
             self.uploaded.append((filename, content_type))
 
         def delete(self) -> None:
             self.deleted = True
+
+        def reload(self) -> None:
+            pass
+
+        def exists(self) -> bool:
+            return True
 
     class FakeBucket:
         def __init__(self) -> None:
@@ -596,17 +603,15 @@ def test_gemini_adapter_vertexai_uploads_files_to_gcs(tmp_path: Path) -> None:
     assert uploaded_blob.deleted is True
 
 
-def test_vertex_media_mime_sniffs_pdf_without_extension(tmp_path: Path) -> None:
+def test_gemini_media_mime_sniffs_pdf_without_extension(tmp_path: Path) -> None:
     path = tmp_path / "resume"
     path.write_bytes(b"%PDF-1.4\n%EOF")
-    assert _vertex_media_mime_type(path) == "application/pdf"
+    assert _gemini_media_mime_type(path) == "application/pdf"
 
 
-def test_vertex_media_mime_maps_common_extensions() -> None:
-    assert _vertex_media_mime_type(Path("x.pdf")) == "application/pdf"
-    assert _vertex_media_mime_type(Path("x.docx")) == (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+def test_gemini_media_mime_maps_common_extensions() -> None:
+    assert _gemini_media_mime_type(Path("x.pdf")) == "application/pdf"
+    assert _gemini_media_mime_type(Path("x.docx")) is None
 
 
 def test_gemini_adapter_vertexai_gcs_cleanup_on_success_policy(tmp_path: Path) -> None:
@@ -632,12 +637,19 @@ def test_gemini_adapter_vertexai_gcs_cleanup_on_success_policy(tmp_path: Path) -
         def __init__(self, name: str) -> None:
             self.name = name
             self.deleted = False
+            self.size = 11
 
         def upload_from_filename(self, filename: str, content_type: str):
             _ = (filename, content_type)
 
         def delete(self) -> None:
             self.deleted = True
+
+        def reload(self) -> None:
+            pass
+
+        def exists(self) -> bool:
+            return True
 
     class FakeBucket:
         def __init__(self) -> None:
