@@ -110,16 +110,19 @@ def _make_nullable(schema: dict[str, Any]) -> dict[str, Any]:
 
     # OpenAI Structured Outputs do not support type: [type, "null"].
     # They require anyOf: [{type: type}, {type: "null"}].
+    # Keep all type-specific attributes (e.g. "items" for arrays) inside
+    # the anyOf variant so the sub-schema remains valid.
     if isinstance(node_type, str):
-        new_node = deepcopy(node)
-        new_node.pop("type", None)
-        return {"anyOf": [{"type": node_type}, {"type": "null"}], **new_node}
+        return {"anyOf": [deepcopy(node), {"type": "null"}]}
 
     if isinstance(node_type, list):
-        new_node = deepcopy(node)
-        new_node.pop("type", None)
-        types = [{"type": t} for t in node_type if t != "null"] + [{"type": "null"}]
-        return {"anyOf": types, **new_node}
+        non_null_node = deepcopy(node)
+        non_null_types = [t for t in node_type if t != "null"]
+        if len(non_null_types) == 1:
+            non_null_node["type"] = non_null_types[0]
+        else:
+            non_null_node["type"] = non_null_types
+        return {"anyOf": [non_null_node, {"type": "null"}]}
 
     # No explicit type/union: wrap in anyOf.
     return {"anyOf": [node, {"type": "null"}]}
