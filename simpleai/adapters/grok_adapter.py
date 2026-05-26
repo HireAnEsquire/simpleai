@@ -9,6 +9,7 @@ from typing import Any, Sequence
 from pydantic import BaseModel
 
 from simpleai.adapters.base import BaseAdapter
+from simpleai.adapters.reasoning import ReasoningLevel, build_grok_reasoning_payload, merge_reasoning_payload
 from simpleai.exceptions import ProviderError
 from simpleai.types import AdapterResponse, Citation, PromptInput
 
@@ -147,6 +148,7 @@ class GrokAdapter(BaseAdapter):
         files: Sequence[Path] | None,
         output_format: type[BaseModel] | None,
         adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None = None,
     ) -> AdapterResponse:
         try:
             create_kwargs: dict[str, Any] = {
@@ -168,6 +170,8 @@ class GrokAdapter(BaseAdapter):
 
             if output_format is not None:
                 create_kwargs["response_format"] = output_format
+
+            merge_reasoning_payload(create_kwargs, build_grok_reasoning_payload(reasoning_level, model=model))
 
             if adapter_options:
                 create_kwargs.update(adapter_options)

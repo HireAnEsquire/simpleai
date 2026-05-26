@@ -7,9 +7,12 @@ from typing import Any
 from .exceptions import ModelResolutionError
 from .settings import canonical_provider_name, get_provider_api_key
 
-# Known model IDs from official provider model docs as of 2026-02-06.
+# Known model IDs from official provider model docs as of 2026-05-26.
 MODEL_PROVIDER_MAP: dict[str, str] = {
     # OpenAI
+    "gpt-5.5": "openai",
+    "gpt-5.5-pro": "openai",
+    "gpt-5.5-2026-04-23": "openai",
     "gpt-5.4": "openai",
     "gpt-5.4-mini": "openai",
     "gpt-5.4-nano": "openai",
@@ -49,6 +52,7 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "computer-use-preview": "openai",
     "codex-mini-latest": "openai",
     # Gemini
+    "gemini-3.5-flash": "gemini",
     "gemini-3.1-pro-preview": "gemini",
     "gemini-3.1-flash": "gemini",
     "gemini-3.1-flash-image": "gemini",
@@ -69,6 +73,7 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "veo-3.1-generate-preview": "gemini",
     "veo-3.0-generate-preview": "gemini",
     # Anthropic Claude
+    "claude-opus-4-7": "claude",
     "claude-opus-4-6": "claude",
     "claude-sonnet-4-6": "claude",
     "claude-opus-4-6-20260115": "claude",
@@ -82,6 +87,11 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "claude-haiku-3-5-20241022": "claude",
     "claude-3-7-sonnet-20250219": "claude",
     # xAI Grok
+    "grok-4.3": "grok",
+    "grok-4.20-0309-reasoning": "grok",
+    "grok-4.20-0309-non-reasoning": "grok",
+    "grok-4.20-multi-agent-0309": "grok",
+    "grok-build-0.1": "grok",
     "grok-5": "grok",
     "grok-4.20": "grok",
     "grok-4.2": "grok",

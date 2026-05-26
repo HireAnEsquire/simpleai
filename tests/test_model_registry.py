@@ -6,10 +6,10 @@ from simpleai.model_registry import resolve_provider_and_model
 BASE_SETTINGS = {
     "defaults": ["gemini", "openai", "claude", "grok", "perplexity"],
     "providers": {
-        "gemini": {"default_model": "gemini-3.1-pro-preview", "api_key": None},
-        "openai": {"default_model": "gpt-5.2", "api_key": "sk-test"},
-        "claude": {"default_model": "claude-opus-4-6", "api_key": None},
-        "grok": {"default_model": "grok-4-1-fast-reasoning", "api_key": None},
+        "gemini": {"default_model": "gemini-3.5-flash", "api_key": None},
+        "openai": {"default_model": "gpt-5.5", "api_key": "sk-test"},
+        "claude": {"default_model": "claude-opus-4-7", "api_key": None},
+        "grok": {"default_model": "grok-4.3", "api_key": None},
         "perplexity": {"default_model": "sonar-deep-research", "api_key": None},
     },
 }
@@ -18,13 +18,13 @@ BASE_SETTINGS = {
 def test_resolve_provider_alias_uses_default_model() -> None:
     provider, model = resolve_provider_and_model(BASE_SETTINGS, "chatgpt")
     assert provider == "openai"
-    assert model == "gpt-5.2"
+    assert model == "gpt-5.5"
 
 
 def test_resolve_xai_alias_uses_grok_default_model() -> None:
     provider, model = resolve_provider_and_model(BASE_SETTINGS, "xai")
     assert provider == "grok"
-    assert model == "grok-4-1-fast-reasoning"
+    assert model == "grok-4.3"
 
 
 def test_resolve_known_model_mapping() -> None:
@@ -48,4 +48,4 @@ def test_resolve_latest_gemini_family() -> None:
 def test_default_provider_prefers_credentials() -> None:
     provider, model = resolve_provider_and_model(BASE_SETTINGS, None)
     assert provider == "openai"
-    assert model == "gpt-5.2"
+    assert model == "gpt-5.5"

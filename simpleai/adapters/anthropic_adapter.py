@@ -12,6 +12,11 @@ from typing import Any, Sequence
 from pydantic import BaseModel
 
 from simpleai.adapters.base import BaseAdapter
+from simpleai.adapters.reasoning import (
+    ReasoningLevel,
+    build_anthropic_reasoning_payload,
+    merge_reasoning_payload,
+)
 from simpleai.exceptions import ProviderError
 from simpleai.schema import (
     ANTHROPIC_UNSUPPORTED_SCHEMA_KEYS,
@@ -235,6 +240,7 @@ class AnthropicAdapter(BaseAdapter):
         files: Sequence[Path] | None,
         output_format: type[BaseModel] | None,
         adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None = None,
     ) -> AdapterResponse:
         del files  # unsupported in this adapter; caller should pass extracted text instead
 
@@ -265,6 +271,8 @@ class AnthropicAdapter(BaseAdapter):
                         "schema": anthropic_response_schema(output_format),
                     }
                 }
+
+            merge_reasoning_payload(payload, build_anthropic_reasoning_payload(reasoning_level, model=model))
 
             if adapter_options:
                 payload.update(adapter_options)

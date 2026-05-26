@@ -5,10 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `default_reasoning_level` settings option (Django `SIMPLEAI` / `ai_settings.json`). When unset or empty, providers use their standard model defaults.
 - Anthropic rate limiting support for Tier 1 accounts:
   - Automatic retry using `retry-after` header from 429 responses
   - Configurable retry count (`max_retries`)
   - Option to skip secondary citation API call (`skip_citation_followup`)
+
+### Changed
+- Default models updated to latest provider releases (2026-05-26):
+  - Gemini: `gemini-3.5-flash`
+  - OpenAI: `gpt-5.5`
+  - Claude: `claude-opus-4-7`
+  - Grok: `grok-4.3`
+  - Perplexity: `sonar-deep-research` (unchanged)
 
 ## [0.1.0] - 2026-02-06
 

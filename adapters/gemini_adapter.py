@@ -597,7 +597,7 @@ class GeminiAdapter(BaseAdapter):
             if getattr(self, "_use_vertexai", False) and model.startswith("gemini-3.1"):
                 client = self._genai.Client(vertexai=True, project=self._project, location="global")
 
-            default_max_tokens = 65536 if "gemini-3.1" in model else 8192
+            default_max_tokens = 65536 if ("gemini-3.5" in model or "gemini-3.1" in model) else 8192
             config_kwargs: dict[str, Any] = {
                 "max_output_tokens": int(self.provider_settings.get("max_output_tokens", default_max_tokens)),
             }

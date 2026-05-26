@@ -13,6 +13,11 @@ from urllib.parse import urlparse
 from pydantic import BaseModel
 
 from simpleai.adapters.base import BaseAdapter
+from simpleai.adapters.reasoning import (
+    ReasoningLevel,
+    build_perplexity_reasoning_payload,
+    merge_reasoning_payload,
+)
 from simpleai.exceptions import ProviderError
 from simpleai.schema import perplexity_response_schema
 from simpleai.types import AdapterResponse, Citation, PromptInput
@@ -283,6 +288,7 @@ class PerplexityAdapter(BaseAdapter):
         files: Sequence[Path] | None,
         output_format: type[BaseModel] | None,
         adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None = None,
     ) -> AdapterResponse:
         del files  # unsupported in this adapter; caller should pass extracted text instead
 
@@ -306,6 +312,11 @@ class PerplexityAdapter(BaseAdapter):
                         "schema": schema,
                     },
                 }
+
+            merge_reasoning_payload(
+                payload,
+                build_perplexity_reasoning_payload(reasoning_level, target=target),
+            )
 
             if adapter_options:
                 payload.update(adapter_options)

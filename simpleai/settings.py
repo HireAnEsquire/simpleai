@@ -20,10 +20,11 @@ from .exceptions import SettingsError
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "defaults": ["gemini", "openai", "claude", "grok", "perplexity"],
+    "default_reasoning_level": None,
     "providers": {
         "gemini": {
             "api_key": None,
-            "default_model": "gemini-3.1-pro-preview",
+            "default_model": "gemini-3.5-flash",
             "max_output_tokens": 65536,
             "use_vertexai": False,
             "vertexai_project": None,
@@ -31,20 +32,20 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         },
         "claude": {
             "api_key": None,
-            "default_model": "claude-opus-4-6",
+            "default_model": "claude-opus-4-7",
             "max_tokens": 128000,
             "max_retries": 3,  # retries on 429 errors (uses retry-after header)
             "skip_citation_followup": False,  # skip extra API call for citations
         },
         "openai": {
             "api_key": None,
-            "default_model": "gpt-5.4",
+            "default_model": "gpt-5.5",
             "max_output_tokens": 128000,
             "base_url": None,
         },
         "grok": {
             "api_key": None,
-            "default_model": "grok-4-1-fast-reasoning",
+            "default_model": "grok-4.3",
             "max_tokens": 8192,
         },
         "perplexity": {
@@ -223,6 +224,17 @@ def _load_from_json(explicit: str | Path | None) -> dict[str, Any] | None:
 
     return None
 
+
+
+def get_default_reasoning_level(settings: dict[str, Any]) -> str | None:
+    """Return configured default reasoning level, or None for provider model defaults."""
+
+    raw = settings.get("default_reasoning_level")
+    if raw is None:
+        return None
+    if isinstance(raw, str) and not raw.strip():
+        return None
+    return str(raw).strip()
 
 
 def get_provider_api_key(settings: dict[str, Any], provider: str) -> str | None:

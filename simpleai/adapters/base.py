@@ -8,6 +8,7 @@ from typing import Any, Sequence
 
 from pydantic import BaseModel
 
+from simpleai.adapters.reasoning import ReasoningLevel
 from simpleai.types import AdapterResponse, PromptInput
 
 
@@ -31,5 +32,12 @@ class BaseAdapter(ABC):
         files: Sequence[Path] | None,
         output_format: type[BaseModel] | None,
         adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None = None,
     ) -> AdapterResponse:
-        """Execute the prompt on the provider and return normalized output."""
+        """Execute the prompt on the provider and return normalized output.
+
+        Args:
+            reasoning_level: Optional reasoning depth. One of ``none``, ``low``,
+                ``medium``, ``high``, or ``extra_high``. When omitted, provider
+                model defaults are used.
+        """

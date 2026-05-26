@@ -234,12 +234,12 @@ SIMPLEAI = {
     "providers": {
         "gemini": {
             "api_key": "...", 
-            "default_model": "gemini-3.1-pro-preview",
+            "default_model": "gemini-3.5-flash",
             "use_vertexai": False,  # Set to True and provide project/location to use Vertex AI
         },
-        "openai": {"api_key": "...", "default_model": "gpt-5.2"},
-        "claude": {"api_key": "...", "default_model": "claude-opus-4-6"},
-        "grok": {"api_key": "...", "default_model": "grok-4-1-fast-reasoning"},
+        "openai": {"api_key": "...", "default_model": "gpt-5.5"},
+        "claude": {"api_key": "...", "default_model": "claude-opus-4-7"},
+        "grok": {"api_key": "...", "default_model": "grok-4.3"},
         "perplexity": {"api_key": "...", "default_model": "sonar-deep-research"},
     },
     "logging": {
@@ -346,7 +346,7 @@ Configuration options (set in `ai_settings.json` under `providers.claude`):
   "providers": {
     "claude": {
       "api_key": "...",
-      "default_model": "claude-opus-4-6",
+      "default_model": "claude-opus-4-7",
       "max_tokens": 128000,
       "max_retries": 3,
       "skip_citation_followup": false
@@ -461,13 +461,15 @@ This repo includes required packaging files:
 
 PyPI publishing steps are documented in [README_PYPI.md](README_PYPI.md).
 
-## Defaults (as of 2026-02-06)
+## Defaults (as of 2026-05-26)
 
 Current default models in bundled settings:
-- Gemini: `gemini-3.1-pro-preview`
-- OpenAI: `gpt-5.2`
-- Claude: `claude-opus-4-6`
-- Grok: `grok-4-1-fast-reasoning`
+- Gemini: `gemini-3.5-flash`
+- OpenAI: `gpt-5.5`
+- Claude: `claude-opus-4-7`
+- Grok: `grok-4.3`
 - Perplexity: `sonar-deep-research`
+
+Optional `default_reasoning_level` (`none`, `low`, `medium`, `high`, `extra_high`) applies when `run_prompt(..., reasoning_level=...)` is omitted. Leave unset or empty to use each provider model's standard behavior.
 
 These can be changed in your settings file at any time.

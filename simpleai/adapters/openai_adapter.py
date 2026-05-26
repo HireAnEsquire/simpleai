@@ -10,6 +10,7 @@ from typing import Any, Sequence
 from pydantic import BaseModel
 
 from simpleai.adapters.base import BaseAdapter
+from simpleai.adapters.reasoning import ReasoningLevel, build_openai_reasoning_payload, merge_reasoning_payload
 from simpleai.exceptions import ProviderError
 from simpleai.schema import openai_response_schema
 from simpleai.types import AdapterResponse, Citation, PromptInput
@@ -158,6 +159,7 @@ class OpenAIAdapter(BaseAdapter):
         files: Sequence[Path] | None,
         output_format: type[BaseModel] | None,
         adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None = None,
     ) -> AdapterResponse:
         try:
             file_ids: list[str] = []
@@ -197,6 +199,8 @@ class OpenAIAdapter(BaseAdapter):
                         "strict": True,
                     }
                 }
+
+            merge_reasoning_payload(payload, build_openai_reasoning_payload(reasoning_level, model=model))
 
             if adapter_options:
                 payload.update(adapter_options)

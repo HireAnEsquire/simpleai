@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from simpleai.settings import get_provider_api_key, load_settings
+from simpleai.settings import get_default_reasoning_level, get_provider_api_key, load_settings
 
 
 def test_load_settings_from_json_file(tmp_path: Path) -> None:
@@ -39,6 +39,11 @@ def test_load_settings_defaults_when_no_sources(tmp_path: Path, monkeypatch) -> 
     settings = load_settings()
 
     assert settings["defaults"] == ["gemini", "openai", "claude", "grok", "perplexity"]
+    assert settings["default_reasoning_level"] is None
+    assert settings["providers"]["gemini"]["default_model"] == "gemini-3.5-flash"
+    assert settings["providers"]["openai"]["default_model"] == "gpt-5.5"
+    assert settings["providers"]["claude"]["default_model"] == "claude-opus-4-7"
+    assert settings["providers"]["grok"]["default_model"] == "grok-4.3"
     assert "providers" in settings
     assert "citation_normalization" in settings
     assert settings["citation_normalization"]["source_alias_by_domain"] == {}
@@ -92,6 +97,30 @@ def test_get_provider_api_key_supports_grok_alias_env_var(monkeypatch) -> None:
     monkeypatch.setenv("GROK_API_KEY", "grok-test-key")
 
     assert get_provider_api_key(settings, "grok") == "grok-test-key"
+
+
+def test_default_reasoning_level_empty_uses_provider_defaults() -> None:
+    settings = load_settings()
+    assert get_default_reasoning_level(settings) is None
+
+    settings["default_reasoning_level"] = ""
+    assert get_default_reasoning_level(settings) is None
+
+    settings["default_reasoning_level"] = "  "
+    assert get_default_reasoning_level(settings) is None
+
+
+def test_load_settings_default_reasoning_level(tmp_path: Path) -> None:
+    settings_path = tmp_path / "ai_settings.json"
+    settings_path.write_text(
+        json.dumps({"default_reasoning_level": "high"}),
+        encoding="utf-8",
+    )
+
+    settings = load_settings(settings_file=settings_path)
+
+    assert settings["default_reasoning_level"] == "high"
+    assert get_default_reasoning_level(settings) == "high"
 
 
 def test_load_settings_merges_citation_domain_aliases(tmp_path: Path) -> None:

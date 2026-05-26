@@ -15,7 +15,12 @@ from .adapters.logging_adapter import PromptLogger
 from .exceptions import ProviderError, SettingsError, SimpleAIException
 from .files import collect_file_paths, extract_text_from_files
 from .model_registry import resolve_provider_and_model
-from .settings import expected_provider_env_vars, get_provider_api_key, load_settings
+from .settings import (
+    expected_provider_env_vars,
+    get_default_reasoning_level,
+    get_provider_api_key,
+    load_settings,
+)
 from .types import PromptInput
 from .citations import normalize_citations
 from .utils import coerce_output, validate_citations
@@ -181,7 +186,8 @@ def run_prompt(
         settings_file: Optional override path to ai_settings.json.
         adapter_options: Explicit provider payload overrides.
         reasoning_level: Optional reasoning depth (``none``, ``low``, ``medium``,
-            ``high``, ``extra_high``). Omitted values use provider model defaults.
+            ``high``, ``extra_high``). Omitted values use ``default_reasoning_level``
+            from settings when set; otherwise provider model defaults apply.
         **provider_kwargs: Additional provider payload overrides.
 
     Returns:
@@ -271,6 +277,9 @@ def run_prompt(
 
         logger = PromptLogger(settings.get("logging", {}))
         started_at = time.time()
+
+        if reasoning_level is None:
+            reasoning_level = get_default_reasoning_level(settings)
 
         try:
             effective_reasoning_level = parse_reasoning_level(reasoning_level)

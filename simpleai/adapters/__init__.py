@@ -6,6 +6,7 @@ from typing import Any
 
 from .anthropic_adapter import AnthropicAdapter
 from .base import BaseAdapter
+from .reasoning import REASONING_LEVELS, ReasoningLevel, parse_reasoning_level
 from .gemini_adapter import GeminiAdapter
 from .grok_adapter import GrokAdapter
 from .openai_adapter import OpenAIAdapter
@@ -34,8 +35,11 @@ __all__ = [
     "AnthropicAdapter",
     "BaseAdapter",
     "GeminiAdapter",
+    "REASONING_LEVELS",
+    "ReasoningLevel",
     "get_adapter",
     "GrokAdapter",
     "OpenAIAdapter",
     "PerplexityAdapter",
+    "parse_reasoning_level",
 ]

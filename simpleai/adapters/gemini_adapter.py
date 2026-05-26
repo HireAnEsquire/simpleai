@@ -1,7 +1,5 @@
 """Google Gemini adapter using google-genai SDK."""
 
-from __future__ import annotations
-
 import logging
 import mimetypes
 import os
@@ -9,7 +7,8 @@ import sys
 import uuid
 import zipfile
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
+from collections.abc import Sequence
 
 # Vertex Gemini natively supports only specific mime types for binary parts.
 # For others (like docx, pptx), we fall back to text extraction.
@@ -44,6 +43,7 @@ from tenacity import (
 )
 
 from simpleai.adapters.base import BaseAdapter
+from simpleai.adapters.reasoning import ReasoningLevel, build_gemini_reasoning_config_kwargs
 from simpleai.exceptions import FileExtractionError, ProviderError
 from simpleai.files import extract_text_from_files
 from simpleai.types import AdapterResponse, Citation, PromptInput
@@ -91,15 +91,19 @@ def _gemini_media_mime_type(path: Path) -> str | None:
     ext = path.suffix.lower()
     if ext in _GEMINI_SUPPORTED_MIME:
         return _GEMINI_SUPPORTED_MIME[ext]
-    
+
     guessed, _ = mimetypes.guess_type(path.name)
-    if guessed and (guessed.startswith(_GEMINI_SUPPORTED_PREFIXES) or guessed in {"application/pdf", "application/json"}):
+    if guessed and (
+        guessed.startswith(_GEMINI_SUPPORTED_PREFIXES) or guessed in {"application/pdf", "application/json"}
+    ):
         return guessed
-    
+
     sniffed = _sniff_gemini_media_mime(path)
-    if sniffed and (sniffed.startswith(_GEMINI_SUPPORTED_PREFIXES) or sniffed in {"application/pdf", "application/json"}):
+    if sniffed and (
+        sniffed.startswith(_GEMINI_SUPPORTED_PREFIXES) or sniffed in {"application/pdf", "application/json"}
+    ):
         return sniffed
-        
+
     return None
 
 
@@ -138,31 +142,25 @@ class GeminiAdapter(BaseAdapter):
         self.types = types
         self._genai = genai
         self._use_vertexai = use_vertexai
-        self._vertexai_gcs_bucket = (
-            provider_settings.get("vertexai_gcs_bucket")
-            or os.getenv("GEMINI_VERTEXAI_GCS_BUCKET")
+        self._vertexai_gcs_bucket = provider_settings.get("vertexai_gcs_bucket") or os.getenv(
+            "GEMINI_VERTEXAI_GCS_BUCKET"
         )
         self._vertexai_gcs_prefix = (
             provider_settings.get("vertexai_gcs_prefix")
             or os.getenv("GEMINI_VERTEXAI_GCS_PREFIX")
             or "simpleai-uploads"
         ).strip("/")
-        self._vertexai_gcs_cleanup = str(
-            provider_settings.get("vertexai_gcs_cleanup")
-            or os.getenv("GEMINI_VERTEXAI_GCS_CLEANUP")
-            or "always"
-        ).strip().lower()
+        self._vertexai_gcs_cleanup = (
+            str(provider_settings.get("vertexai_gcs_cleanup") or os.getenv("GEMINI_VERTEXAI_GCS_CLEANUP") or "always")
+            .strip()
+            .lower()
+        )
         if self._vertexai_gcs_cleanup not in {"always", "on_success", "never"}:
-            raise ProviderError(
-                "Invalid vertexai_gcs_cleanup value. Use one of: "
-                "'always', 'on_success', 'never'."
-            )
+            raise ProviderError("Invalid vertexai_gcs_cleanup value. Use one of: " "'always', 'on_success', 'never'.")
         self._storage_client: Any | None = None
         # google-genai blocks Client.files.upload when using Vertex AI.
         # For Vertex, enable true binary files only when GCS bucket is configured.
-        self.supports_binary_files = (not self._use_vertexai) or bool(
-            self._vertexai_gcs_bucket
-        )
+        self.supports_binary_files = (not self._use_vertexai) or bool(self._vertexai_gcs_bucket)
 
     def _append_text_fallback_for_path(self, path: Path, contents: list[Any]) -> None:
         """Append one local file as extracted text (Vertex when GCS upload is skipped)."""
@@ -170,32 +168,22 @@ class GeminiAdapter(BaseAdapter):
             extracted = extract_text_from_files([path])
             for item in extracted:
                 contents.append(f"[File: {item.path.name}]\n{item.text}")
-            _emit_gemini_file_event(
-                "Gemini adapter: text extraction fallback succeeded "
-                f"path={path!s}"
-            )
+            _emit_gemini_file_event("Gemini adapter: text extraction fallback succeeded " f"path={path!s}")
         except FileExtractionError:
             _emit_gemini_file_event(
-                "Gemini adapter: structured text extraction failed; "
-                f"trying UTF-8 read path={path!s}",
+                "Gemini adapter: structured text extraction failed; " f"trying UTF-8 read path={path!s}",
                 logging.WARNING,
             )
             try:
                 raw = path.read_text(encoding="utf-8", errors="replace")
             except OSError as exc:
                 _emit_gemini_file_event(
-                    "Gemini adapter: text fallback failed "
-                    f"path={path!s}: {exc}",
+                    "Gemini adapter: text fallback failed " f"path={path!s}: {exc}",
                     logging.ERROR,
                 )
-                raise ProviderError(
-                    f"Could not read file for text fallback: {path.name}"
-                ) from exc
+                raise ProviderError(f"Could not read file for text fallback: {path.name}") from exc
             contents.append(f"[File: {path.name}]\n{raw}")
-            _emit_gemini_file_event(
-                "Gemini adapter: UTF-8 text fallback succeeded "
-                f"path={path!s}"
-            )
+            _emit_gemini_file_event("Gemini adapter: UTF-8 text fallback succeeded " f"path={path!s}")
 
     def _try_delete_gcs_object(self, object_name: str, *, reason: str) -> None:
         """Best-effort delete; avoids orphaned objects after failed or bad uploads."""
@@ -209,13 +197,11 @@ class GeminiAdapter(BaseAdapter):
                 return
             blob.delete()
             _emit_gemini_file_event(
-                "Gemini adapter: best-effort GCS delete succeeded "
-                f"({reason}) object={object_name!r}"
+                "Gemini adapter: best-effort GCS delete succeeded " f"({reason}) object={object_name!r}"
             )
         except Exception as exc:
             _emit_gemini_file_event(
-                "Gemini adapter: best-effort GCS delete failed "
-                f"({reason}) object={object_name!r}: {exc}",
+                "Gemini adapter: best-effort GCS delete failed " f"({reason}) object={object_name!r}: {exc}",
                 logging.WARNING,
             )
 
@@ -240,9 +226,7 @@ class GeminiAdapter(BaseAdapter):
         except OSError as exc:
             raise ProviderError(f"Cannot stat file for GCS upload: {path}") from exc
         if local_size == 0:
-            raise ProviderError(
-                "GCS upload must not be called for 0-byte files; use text fallback."
-            )
+            raise ProviderError("GCS upload must not be called for 0-byte files; use text fallback.")
 
         object_name = f"{self._vertexai_gcs_prefix}/{uuid.uuid4().hex}-{path.name}"
         _emit_gemini_file_event(
@@ -262,10 +246,7 @@ class GeminiAdapter(BaseAdapter):
             )
             self._try_delete_gcs_object(
                 object_name,
-                reason=(
-                    "upload failure (may leave 0-byte or partial object without "
-                    "cleanup)"
-                ),
+                reason=("upload failure (may leave 0-byte or partial object without " "cleanup)"),
             )
             raise
         try:
@@ -277,15 +258,12 @@ class GeminiAdapter(BaseAdapter):
                 logging.ERROR,
             )
             self._try_delete_gcs_object(object_name, reason="reload failed after upload")
-            raise ProviderError(
-                f"Could not verify GCS upload for {path.name}"
-            ) from exc
+            raise ProviderError(f"Could not verify GCS upload for {path.name}") from exc
 
         remote_size = blob.size
         if remote_size is None:
             _emit_gemini_file_event(
-                f"Gemini adapter: GCS blob has no size after upload "
-                f"object={object_name!r}",
+                f"Gemini adapter: GCS blob has no size after upload " f"object={object_name!r}",
                 logging.ERROR,
             )
             self._try_delete_gcs_object(object_name, reason="missing size after upload")
@@ -302,15 +280,11 @@ class GeminiAdapter(BaseAdapter):
             )
             self._try_delete_gcs_object(object_name, reason="size mismatch after upload")
             raise ProviderError(
-                f"GCS upload size mismatch for {path.name}: "
-                f"local={local_size} remote={remote_size}"
+                f"GCS upload size mismatch for {path.name}: " f"local={local_size} remote={remote_size}"
             )
 
         uri = f"gs://{self._vertexai_gcs_bucket}/{object_name}"
-        _emit_gemini_file_event(
-            f"Gemini adapter: GCS upload verified uri={uri!s} "
-            f"bytes={remote_size}"
-        )
+        _emit_gemini_file_event(f"Gemini adapter: GCS upload verified uri={uri!s} " f"bytes={remote_size}")
         return uri, object_name
 
     def _cleanup_gcs_uploads(
@@ -357,8 +331,7 @@ class GeminiAdapter(BaseAdapter):
                     )
                 except Exception as exc:
                     _emit_gemini_file_event(
-                        "Gemini adapter: GCS cleanup failed for "
-                        f"object={object_name!r}: {exc}",
+                        "Gemini adapter: GCS cleanup failed for " f"object={object_name!r}: {exc}",
                         logging.ERROR,
                     )
         except Exception:
@@ -390,9 +363,7 @@ class GeminiAdapter(BaseAdapter):
                                 f"Gemini adapter: cannot stat file path={path!s}: {exc}",
                                 logging.ERROR,
                             )
-                            raise ProviderError(
-                                f"Cannot read file for Vertex upload: {path}"
-                            ) from exc
+                            raise ProviderError(f"Cannot read file for Vertex upload: {path}") from exc
 
                         if local_bytes == 0:
                             _emit_gemini_file_event(
@@ -439,10 +410,10 @@ class GeminiAdapter(BaseAdapter):
                     for item in extracted:
                         contents.append(f"[File: {item.path.name}]\n{item.text}")
                     _emit_gemini_file_event(
-                        "Gemini adapter: text extraction (no GCS bucket) "
-                        f"succeeded for {len(files)} file(s)"
+                        "Gemini adapter: text extraction (no GCS bucket) " f"succeeded for {len(files)} file(s)"
                     )
             else:
+
                 @retry(
                     retry=retry_if_exception(_is_retryable_gemini_error),
                     wait=wait_exponential(multiplier=1, min=2, max=120),
@@ -461,9 +432,7 @@ class GeminiAdapter(BaseAdapter):
                             f"Gemini adapter: cannot stat file path={path!s}: {exc}",
                             logging.ERROR,
                         )
-                        raise ProviderError(
-                            f"Cannot read file for Gemini upload: {path}"
-                        ) from exc
+                        raise ProviderError(f"Cannot read file for Gemini upload: {path}") from exc
 
                     if local_bytes == 0:
                         _emit_gemini_file_event(
@@ -492,21 +461,18 @@ class GeminiAdapter(BaseAdapter):
                         continue
 
                     _emit_gemini_file_event(
-                        "Gemini adapter: starting Gemini Developer API "
-                        f"file upload path={path!s}"
+                        "Gemini adapter: starting Gemini Developer API " f"file upload path={path!s}"
                     )
                     try:
                         uploaded = _upload(path)
                     except Exception as exc:
                         _emit_gemini_file_event(
-                            "Gemini adapter: Gemini Developer API file upload "
-                            f"failed path={path!s}: {exc}",
+                            "Gemini adapter: Gemini Developer API file upload " f"failed path={path!s}: {exc}",
                             logging.ERROR,
                         )
                         raise
                     _emit_gemini_file_event(
-                        "Gemini adapter: Gemini Developer API file upload "
-                        f"succeeded path={path!s}"
+                        "Gemini adapter: Gemini Developer API file upload " f"succeeded path={path!s}"
                     )
                     contents.append(uploaded)
 
@@ -582,7 +548,9 @@ class GeminiAdapter(BaseAdapter):
                 if retrieved:
                     append_citation(
                         url=retrieved.get("uri"),
-                        title=retrieved.get("title") or retrieved.get("document_name") or retrieved.get("documentName"),
+                        title=retrieved.get("title")
+                        or retrieved.get("document_name")
+                        or retrieved.get("documentName"),
                         source=retrieved.get("document_name") or retrieved.get("documentName") or retrieved.get("uri"),
                         snippet=retrieved.get("text"),
                         raw=chunk,
@@ -620,6 +588,7 @@ class GeminiAdapter(BaseAdapter):
         files: Sequence[Path] | None,
         output_format: type[BaseModel] | None,
         adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None = None,
     ) -> AdapterResponse:
         generation_succeeded = False
         uploaded_objects: list[str] = []
@@ -628,15 +597,13 @@ class GeminiAdapter(BaseAdapter):
             if getattr(self, "_use_vertexai", False) and model.startswith("gemini-3.1"):
                 client = self._genai.Client(vertexai=True, project=self._project, location="global")
 
-            default_max_tokens = 65536 if "gemini-3.1" in model else 8192
+            default_max_tokens = 65536 if ("gemini-3.5" in model or "gemini-3.1" in model) else 8192
             config_kwargs: dict[str, Any] = {
                 "max_output_tokens": int(self.provider_settings.get("max_output_tokens", default_max_tokens)),
             }
 
             if require_search:
-                config_kwargs["tools"] = [
-                    self.types.Tool(google_search=self.types.GoogleSearch())
-                ]
+                config_kwargs["tools"] = [self.types.Tool(google_search=self.types.GoogleSearch())]
                 config_kwargs.setdefault(
                     "system_instruction",
                     "You are an expert researcher. You must ALWAYS use the Google Search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used.",
@@ -645,6 +612,12 @@ class GeminiAdapter(BaseAdapter):
             if output_format is not None:
                 config_kwargs["response_mime_type"] = "application/json"
                 config_kwargs["response_schema"] = output_format.model_json_schema()
+
+            reasoning_kwargs = build_gemini_reasoning_config_kwargs(reasoning_level, model=model)
+            if reasoning_kwargs:
+                thinking_config = reasoning_kwargs.get("thinking_config")
+                if thinking_config is not None:
+                    config_kwargs["thinking_config"] = self.types.ThinkingConfig(**thinking_config)
 
             if adapter_options:
                 config_kwargs.update(adapter_options)
@@ -692,7 +665,9 @@ class GeminiAdapter(BaseAdapter):
                 if fr in ("MAX_TOKENS", "2"):
                     if output_format is not None:
                         max_tokens = config_kwargs.get("max_output_tokens", "unknown")
-                        raise ProviderError(f"Gemini hit MAX_TOKENS before finishing the JSON response. Try increasing max_output_tokens (currently {max_tokens} for model {model}).")
+                        raise ProviderError(
+                            f"Gemini hit MAX_TOKENS before finishing the JSON response. Try increasing max_output_tokens (currently {max_tokens} for model {model})."
+                        )
                     else:
                         logger.warning("Gemini hit MAX_TOKENS. The response may be incomplete.")
 
