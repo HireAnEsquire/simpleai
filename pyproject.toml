@@ -37,6 +37,10 @@ dependencies = [
   "striprtf>=0.0.29",
 ]
 
+[project.scripts]
+simpleai-provider-smoke = "simpleai.scripts.run_provider_smoke:main"
+simpleai-reasoning-smoke = "simpleai.scripts.reasoning_smoke:main"
+
 [project.optional-dependencies]
 django = ["Django>=4.2"]
 dev = [

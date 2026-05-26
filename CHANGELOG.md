@@ -43,7 +43,8 @@ All notable changes to this project will be documented in this file.
 - Catch-all `SimpleAIException` surface for `run_prompt`, with original exception preserved for debugging.
 - Manual cross-provider smoke runner tooling:
   - Shared runner module (`simpleai/provider_smoke.py`)
-  - Standalone script (`scripts/run_provider_smoke.py`)
+  - Packaged CLI module (`simpleai.scripts.run_provider_smoke`) and command (`simpleai-provider-smoke`)
+  - Source-tree compatibility script (`scripts/run_provider_smoke.py`)
   - Django management command (`run_provider_smoke`)
   - Colorized summary and per-provider file-handling mode output (`binary upload` vs `parsed text`)
   - Bundled sample resume file (`simpleai/samples/functionalsample.pdf`)

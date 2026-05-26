@@ -413,11 +413,13 @@ Definition of success in this runner:
 - structured result validates to `JobHistory`
 - citations list is non-empty
 
-### Standalone Python script
+### Packaged CLI smoke runner
 
 ```bash
-python scripts/run_provider_smoke.py
+python -m simpleai.scripts.run_provider_smoke
 ```
+
+Installed packages also expose `simpleai-provider-smoke`.
 
 If `--file` is omitted, the runner looks in this order:
 - `$SAMPLE_PDF_PATH` environment variable
@@ -428,11 +430,13 @@ If `--file` is omitted, the runner looks in this order:
 Optional args:
 
 ```bash
-python scripts/run_provider_smoke.py \
+python -m simpleai.scripts.run_provider_smoke \
   --file ./functionalsample.pdf \
   --providers openai anthropic gemini grok perplexity \
   --settings-file /path/to/ai_settings.json
 ```
+
+The source-tree wrapper at `scripts/run_provider_smoke.py` remains available for local development.
 
 ### Django management command
 
