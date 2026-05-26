@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
   - Option to skip secondary citation API call (`skip_citation_followup`)
 
 ### Changed
+- Gemini GCP settings renamed from `vertexai_*` / `use_vertexai` to `enterprise_*` / `use_enterprise` (aligned with `google-genai` 2.x). Legacy `vertexai_*` keys and `GEMINI_USE_VERTEXAI` / `GEMINI_VERTEXAI_*` env vars remain supported. Search grounding still uses standard `GoogleSearch`.
+- Require `google-genai` 2.x (`>=2.0.0,<3.0.0`). v2 breaking changes are limited to the Interactions API; `GenerateContent` usage in `GeminiAdapter` is unchanged.
 - Default models updated to latest provider releases (2026-05-26):
   - Gemini: `gemini-3.5-flash`
   - OpenAI: `gpt-5.5`

@@ -6,12 +6,12 @@
       "api_key": "YOUR_GEMINI_API_KEY",
       "default_model": "gemini-3.5-flash",
       "max_output_tokens": 65536,
-      "use_vertexai": false,
-      "vertexai_project": "YOUR_GOOGLE_CLOUD_PROJECT_ID",
-      "vertexai_location": "us-central1",
-      "vertexai_gcs_bucket": "YOUR_VERTEX_GCS_BUCKET",
-      "vertexai_gcs_prefix": "simpleai-uploads",
-      "vertexai_gcs_cleanup": "always"
+      "use_enterprise": false,
+      "enterprise_project": "YOUR_GOOGLE_CLOUD_PROJECT_ID",
+      "enterprise_location": "us-central1",
+      "enterprise_gcs_bucket": "YOUR_ENTERPRISE_GCS_BUCKET",
+      "enterprise_gcs_prefix": "simpleai-uploads",
+      "enterprise_gcs_cleanup": "always"
     },
     "claude": {
       "api_key": "YOUR_ANTHROPIC_API_KEY",

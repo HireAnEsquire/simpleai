@@ -8,9 +8,9 @@ SIMPLEAI = {
             "api_key": "YOUR_GEMINI_API_KEY",
             "default_model": "gemini-3.5-flash",
             "max_output_tokens": 65536,
-            "use_vertexai": False,  # Set to True to use Vertex AI instead of standard API
-            "vertexai_project": "YOUR_GOOGLE_CLOUD_PROJECT_ID",  # Required if use_vertexai=True
-            "vertexai_location": "us-central1",  # Required if use_vertexai=True
+            "use_enterprise": False,  # True = Gemini Enterprise Agent Platform (GCP) instead of API key
+            "enterprise_project": "YOUR_GOOGLE_CLOUD_PROJECT_ID",  # Required if use_enterprise=True
+            "enterprise_location": "us-central1",  # Required if use_enterprise=True
         },
         "claude": {
             "api_key": "YOUR_ANTHROPIC_API_KEY",

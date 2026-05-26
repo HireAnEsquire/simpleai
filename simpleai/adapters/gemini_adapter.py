@@ -113,6 +113,40 @@ def _is_retryable_gemini_error(exc: BaseException) -> bool:
     return "503" in exc_str or "429" in exc_str or "UNAVAILABLE" in exc_str or "Too Many Requests" in exc_str
 
 
+def _gemini_provider_setting(
+    provider_settings: dict[str, Any],
+    key: str,
+    *,
+    legacy_key: str,
+    env_var: str,
+    legacy_env_var: str | None = None,
+) -> Any:
+    """Read a Gemini enterprise setting; prefer new keys, then legacy vertexai_* names."""
+    value = provider_settings.get(key)
+    if value is None:
+        value = provider_settings.get(legacy_key)
+    if value is None:
+        value = os.getenv(env_var)
+    if value is None and legacy_env_var:
+        value = os.getenv(legacy_env_var)
+    return value
+
+
+def _gemini_use_enterprise(provider_settings: dict[str, Any]) -> bool:
+    raw = _gemini_provider_setting(
+        provider_settings,
+        "use_enterprise",
+        legacy_key="use_vertexai",
+        env_var="GEMINI_USE_ENTERPRISE",
+        legacy_env_var="GEMINI_USE_VERTEXAI",
+    )
+    if raw is None:
+        return False
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).lower() in ("true", "1", "yes")
+
+
 class GeminiAdapter(BaseAdapter):
     provider_name = "gemini"
     supports_binary_files = True
@@ -126,14 +160,24 @@ class GeminiAdapter(BaseAdapter):
         except Exception as exc:  # pragma: no cover - dependency missing path
             raise ProviderError("google-genai package is required for GeminiAdapter.") from exc
 
-        use_vertexai = provider_settings.get("use_vertexai")
-        if use_vertexai is None:
-            use_vertexai = str(os.getenv("GEMINI_USE_VERTEXAI", "")).lower() in ("true", "1", "yes")
+        use_enterprise = _gemini_use_enterprise(provider_settings)
 
-        if use_vertexai:
-            project = provider_settings.get("vertexai_project") or os.getenv("GEMINI_VERTEXAI_PROJECT")
-            location = provider_settings.get("vertexai_location") or os.getenv("GEMINI_VERTEXAI_LOCATION")
-            self.client = genai.Client(vertexai=True, project=project, location=location)
+        if use_enterprise:
+            project = _gemini_provider_setting(
+                provider_settings,
+                "enterprise_project",
+                legacy_key="vertexai_project",
+                env_var="GEMINI_ENTERPRISE_PROJECT",
+                legacy_env_var="GEMINI_VERTEXAI_PROJECT",
+            )
+            location = _gemini_provider_setting(
+                provider_settings,
+                "enterprise_location",
+                legacy_key="vertexai_location",
+                env_var="GEMINI_ENTERPRISE_LOCATION",
+                legacy_env_var="GEMINI_VERTEXAI_LOCATION",
+            )
+            self.client = genai.Client(enterprise=True, project=project, location=location)
             self._project = project
         else:
             api_key = provider_settings.get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -141,26 +185,48 @@ class GeminiAdapter(BaseAdapter):
 
         self.types = types
         self._genai = genai
-        self._use_vertexai = use_vertexai
-        self._vertexai_gcs_bucket = provider_settings.get("vertexai_gcs_bucket") or os.getenv(
-            "GEMINI_VERTEXAI_GCS_BUCKET"
+        self._use_enterprise = use_enterprise
+        self._enterprise_gcs_bucket = _gemini_provider_setting(
+            provider_settings,
+            "enterprise_gcs_bucket",
+            legacy_key="vertexai_gcs_bucket",
+            env_var="GEMINI_ENTERPRISE_GCS_BUCKET",
+            legacy_env_var="GEMINI_VERTEXAI_GCS_BUCKET",
         )
-        self._vertexai_gcs_prefix = (
-            provider_settings.get("vertexai_gcs_prefix")
-            or os.getenv("GEMINI_VERTEXAI_GCS_PREFIX")
-            or "simpleai-uploads"
+        self._enterprise_gcs_prefix = (
+            str(
+                _gemini_provider_setting(
+                    provider_settings,
+                    "enterprise_gcs_prefix",
+                    legacy_key="vertexai_gcs_prefix",
+                    env_var="GEMINI_ENTERPRISE_GCS_PREFIX",
+                    legacy_env_var="GEMINI_VERTEXAI_GCS_PREFIX",
+                )
+                or "simpleai-uploads"
+            )
         ).strip("/")
-        self._vertexai_gcs_cleanup = (
-            str(provider_settings.get("vertexai_gcs_cleanup") or os.getenv("GEMINI_VERTEXAI_GCS_CLEANUP") or "always")
+        self._enterprise_gcs_cleanup = (
+            str(
+                _gemini_provider_setting(
+                    provider_settings,
+                    "enterprise_gcs_cleanup",
+                    legacy_key="vertexai_gcs_cleanup",
+                    env_var="GEMINI_ENTERPRISE_GCS_CLEANUP",
+                    legacy_env_var="GEMINI_VERTEXAI_GCS_CLEANUP",
+                )
+                or "always"
+            )
             .strip()
             .lower()
         )
-        if self._vertexai_gcs_cleanup not in {"always", "on_success", "never"}:
-            raise ProviderError("Invalid vertexai_gcs_cleanup value. Use one of: " "'always', 'on_success', 'never'.")
+        if self._enterprise_gcs_cleanup not in {"always", "on_success", "never"}:
+            raise ProviderError(
+                "Invalid enterprise_gcs_cleanup value. Use one of: " "'always', 'on_success', 'never'."
+            )
         self._storage_client: Any | None = None
-        # google-genai blocks Client.files.upload when using Vertex AI.
-        # For Vertex, enable true binary files only when GCS bucket is configured.
-        self.supports_binary_files = (not self._use_vertexai) or bool(self._vertexai_gcs_bucket)
+        # google-genai blocks Client.files.upload on the enterprise (GCP) path.
+        # Enable true binary files only when a GCS bucket is configured.
+        self.supports_binary_files = (not self._use_enterprise) or bool(self._enterprise_gcs_bucket)
 
     def _append_text_fallback_for_path(self, path: Path, contents: list[Any]) -> None:
         """Append one local file as extracted text (Vertex when GCS upload is skipped)."""
@@ -187,11 +253,11 @@ class GeminiAdapter(BaseAdapter):
 
     def _try_delete_gcs_object(self, object_name: str, *, reason: str) -> None:
         """Best-effort delete; avoids orphaned objects after failed or bad uploads."""
-        if not self._vertexai_gcs_bucket:
+        if not self._enterprise_gcs_bucket:
             return
         try:
             storage_client = self._get_storage_client()
-            bucket = storage_client.bucket(self._vertexai_gcs_bucket)
+            bucket = storage_client.bucket(self._enterprise_gcs_bucket)
             blob = bucket.blob(object_name)
             if not blob.exists():
                 return
@@ -213,14 +279,14 @@ class GeminiAdapter(BaseAdapter):
         except Exception as exc:
             raise ProviderError(
                 "google-cloud-storage is required for Vertex GCS uploads. "
-                "Install it and configure vertexai_gcs_bucket."
+                "Install it and configure enterprise_gcs_bucket."
             ) from exc
         self._storage_client = storage.Client(project=self._project)
         return self._storage_client
 
     def _upload_file_to_gcs(self, path: Path, *, mime_type: str) -> tuple[str, str]:
-        if not self._vertexai_gcs_bucket:
-            raise ProviderError("Missing vertexai_gcs_bucket for Vertex file uploads.")
+        if not self._enterprise_gcs_bucket:
+            raise ProviderError("Missing enterprise_gcs_bucket for enterprise (GCP) file uploads.")
         try:
             local_size = path.stat().st_size
         except OSError as exc:
@@ -228,14 +294,14 @@ class GeminiAdapter(BaseAdapter):
         if local_size == 0:
             raise ProviderError("GCS upload must not be called for 0-byte files; use text fallback.")
 
-        object_name = f"{self._vertexai_gcs_prefix}/{uuid.uuid4().hex}-{path.name}"
+        object_name = f"{self._enterprise_gcs_prefix}/{uuid.uuid4().hex}-{path.name}"
         _emit_gemini_file_event(
             "Gemini adapter: starting GCS upload "
             f"path={path!s} mime_type={mime_type} local_bytes={local_size} "
-            f"bucket={self._vertexai_gcs_bucket!r} object={object_name!r}"
+            f"bucket={self._enterprise_gcs_bucket!r} object={object_name!r}"
         )
         storage_client = self._get_storage_client()
-        bucket = storage_client.bucket(self._vertexai_gcs_bucket)
+        bucket = storage_client.bucket(self._enterprise_gcs_bucket)
         blob = bucket.blob(object_name)
         try:
             blob.upload_from_filename(str(path), content_type=mime_type)
@@ -283,7 +349,7 @@ class GeminiAdapter(BaseAdapter):
                 f"GCS upload size mismatch for {path.name}: " f"local={local_size} remote={remote_size}"
             )
 
-        uri = f"gs://{self._vertexai_gcs_bucket}/{object_name}"
+        uri = f"gs://{self._enterprise_gcs_bucket}/{object_name}"
         _emit_gemini_file_event(f"Gemini adapter: GCS upload verified uri={uri!s} " f"bytes={remote_size}")
         return uri, object_name
 
@@ -295,20 +361,20 @@ class GeminiAdapter(BaseAdapter):
     ) -> None:
         if not uploaded_objects:
             return
-        if self._vertexai_gcs_cleanup == "never":
+        if self._enterprise_gcs_cleanup == "never":
             return
-        if self._vertexai_gcs_cleanup == "on_success" and not generation_succeeded:
+        if self._enterprise_gcs_cleanup == "on_success" and not generation_succeeded:
             return
         try:
             storage_client = self._get_storage_client()
-            bucket = storage_client.bucket(self._vertexai_gcs_bucket)
+            bucket = storage_client.bucket(self._enterprise_gcs_bucket)
             for object_name in uploaded_objects:
                 blob = bucket.blob(object_name)
                 try:
                     if not blob.exists():
                         _emit_gemini_file_event(
                             "Gemini adapter: GCS cleanup object already absent "
-                            f"object={object_name!r} bucket={self._vertexai_gcs_bucket!r}",
+                            f"object={object_name!r} bucket={self._enterprise_gcs_bucket!r}",
                             logging.WARNING,
                         )
                         continue
@@ -317,11 +383,11 @@ class GeminiAdapter(BaseAdapter):
                     if size_before == 0:
                         _emit_gemini_file_event(
                             "Gemini adapter: GCS cleanup removing 0-byte object "
-                            f"object={object_name!r} bucket={self._vertexai_gcs_bucket!r}. "
+                            f"object={object_name!r} bucket={self._enterprise_gcs_bucket!r}. "
                             "Possible causes: empty local file was uploaded before "
                             "skip logic, interrupted upload, failed upload leaving a "
                             "placeholder, delete of a prior version failed, or "
-                            "vertexai_gcs_cleanup prevented earlier removal.",
+                            "enterprise_gcs_cleanup prevented earlier removal.",
                             logging.WARNING,
                         )
                     blob.delete()
@@ -338,7 +404,7 @@ class GeminiAdapter(BaseAdapter):
             logger.warning(
                 "Failed cleaning up %d GCS upload(s) in bucket %s.",
                 len(uploaded_objects),
-                self._vertexai_gcs_bucket,
+                self._enterprise_gcs_bucket,
                 exc_info=True,
             )
 
@@ -353,8 +419,8 @@ class GeminiAdapter(BaseAdapter):
         uploaded_objects: list[str] = []
 
         if files:
-            if self._use_vertexai:
-                if self._vertexai_gcs_bucket:
+            if self._use_enterprise:
+                if self._enterprise_gcs_bucket:
                     for path in files:
                         try:
                             local_bytes = path.stat().st_size
@@ -403,7 +469,7 @@ class GeminiAdapter(BaseAdapter):
                         )
                 else:
                     _emit_gemini_file_event(
-                        "Gemini adapter: Vertex has no vertexai_gcs_bucket; "
+                        "Gemini adapter: enterprise mode has no enterprise_gcs_bucket; "
                         f"using text extraction for {len(files)} file(s)"
                     )
                     extracted = extract_text_from_files(files)
@@ -594,8 +660,8 @@ class GeminiAdapter(BaseAdapter):
         uploaded_objects: list[str] = []
         try:
             client = self.client
-            if getattr(self, "_use_vertexai", False) and model.startswith("gemini-3.1"):
-                client = self._genai.Client(vertexai=True, project=self._project, location="global")
+            if getattr(self, "_use_enterprise", False) and model.startswith("gemini-3.1"):
+                client = self._genai.Client(enterprise=True, project=self._project, location="global")
 
             default_max_tokens = 65536 if ("gemini-3.5" in model or "gemini-3.1" in model) else 8192
             config_kwargs: dict[str, Any] = {
@@ -678,7 +744,7 @@ class GeminiAdapter(BaseAdapter):
         except Exception as exc:  # pragma: no cover - network/provider behavior
             raise ProviderError(f"Gemini adapter failed: {exc}") from exc
         finally:
-            if self._use_vertexai:
+            if self._use_enterprise:
                 self._cleanup_gcs_uploads(
                     uploaded_objects,
                     generation_succeeded=generation_succeeded,

@@ -428,9 +428,9 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
             return self.client_instance
 
     adapter = GeminiAdapter({
-        "use_vertexai": True,
-        "vertexai_project": "test-project",
-        "vertexai_location": "us-central1"
+        "use_enterprise": True,
+        "enterprise_project": "test-project",
+        "enterprise_location": "us-central1",
     })
     assert adapter.supports_binary_files is False
     
@@ -452,8 +452,19 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
     )
 
     assert fake_genai.client_instance is not None
+    assert fake_genai.client_instance.kwargs.get("enterprise") is True
     assert fake_genai.client_instance.kwargs.get("location") == "global"
     assert fake_genai.client_instance.models.payload is not None
+
+
+def test_gemini_adapter_legacy_vertexai_settings_still_work() -> None:
+    adapter = GeminiAdapter({
+        "use_vertexai": True,
+        "vertexai_project": "legacy-project",
+        "vertexai_location": "europe-west1",
+    })
+    assert adapter._use_enterprise is True
+    assert adapter._project == "legacy-project"
 
 
 def test_gemini_adapter_vertexai_files_fallback_to_extracted_text(tmp_path: Path) -> None:
@@ -480,7 +491,7 @@ def test_gemini_adapter_vertexai_files_fallback_to_extracted_text(tmp_path: Path
 
     fake_models = FakeModels()
     adapter = GeminiAdapter({"api_key": "test"})
-    adapter._use_vertexai = True
+    adapter._use_enterprise = True
     adapter.supports_binary_files = False
     adapter.client = SimpleNamespace(models=fake_models, files=FakeFiles())
 
@@ -560,12 +571,12 @@ def test_gemini_adapter_vertexai_uploads_files_to_gcs(tmp_path: Path) -> None:
 
     adapter = GeminiAdapter(
         {
-            "use_vertexai": True,
-            "vertexai_project": "test-project",
-            "vertexai_location": "us-central1",
-            "vertexai_gcs_bucket": "my-test-bucket",
-            "vertexai_gcs_prefix": "simpleai-test",
-            "vertexai_gcs_cleanup": "always",
+            "use_enterprise": True,
+            "enterprise_project": "test-project",
+            "enterprise_location": "us-central1",
+            "enterprise_gcs_bucket": "my-test-bucket",
+            "enterprise_gcs_prefix": "simpleai-test",
+            "enterprise_gcs_cleanup": "always",
         }
     )
     assert adapter.supports_binary_files is True
@@ -672,11 +683,11 @@ def test_gemini_adapter_vertexai_gcs_cleanup_on_success_policy(tmp_path: Path) -
 
     adapter = GeminiAdapter(
         {
-            "use_vertexai": True,
-            "vertexai_project": "test-project",
-            "vertexai_location": "us-central1",
-            "vertexai_gcs_bucket": "my-test-bucket",
-            "vertexai_gcs_cleanup": "on_success",
+            "use_enterprise": True,
+            "enterprise_project": "test-project",
+            "enterprise_location": "us-central1",
+            "enterprise_gcs_bucket": "my-test-bucket",
+            "enterprise_gcs_cleanup": "on_success",
         }
     )
     adapter._storage_client = FakeStorageClient()

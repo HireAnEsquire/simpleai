@@ -80,13 +80,13 @@ Your "Location" is the Google Cloud Region where your data will be processed.
 # Point to your downloaded service account key
 GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/simpleai-vertex-key.json"
 
-# Switch Gemini adapter to Vertex AI
-GEMINI_USE_VERTEXAI=true
-GEMINI_VERTEXAI_PROJECT=your-google-cloud-project-id
-GEMINI_VERTEXAI_LOCATION=us-central1
-GEMINI_VERTEXAI_GCS_BUCKET=your-upload-bucket
-GEMINI_VERTEXAI_GCS_PREFIX=simpleai-uploads
-GEMINI_VERTEXAI_GCS_CLEANUP=always
+# Switch Gemini adapter to Gemini Enterprise Agent Platform (GCP / Vertex)
+GEMINI_USE_ENTERPRISE=true
+GEMINI_ENTERPRISE_PROJECT=your-google-cloud-project-id
+GEMINI_ENTERPRISE_LOCATION=us-central1
+GEMINI_ENTERPRISE_GCS_BUCKET=your-upload-bucket
+GEMINI_ENTERPRISE_GCS_PREFIX=simpleai-uploads
+GEMINI_ENTERPRISE_GCS_CLEANUP=always
 ```
 
 **Via Django `settings.py` / `ai_settings.json`:**
@@ -94,23 +94,27 @@ GEMINI_VERTEXAI_GCS_CLEANUP=always
 {
   "providers": {
     "gemini": {
-      "use_vertexai": true,
-      "vertexai_project": "your-google-cloud-project-id",
-      "vertexai_location": "us-central1",
-      "vertexai_gcs_bucket": "your-upload-bucket",
-      "vertexai_gcs_prefix": "simpleai-uploads",
-      "vertexai_gcs_cleanup": "always"
+      "use_enterprise": true,
+      "enterprise_project": "your-google-cloud-project-id",
+      "enterprise_location": "us-central1",
+      "enterprise_gcs_bucket": "your-upload-bucket",
+      "enterprise_gcs_prefix": "simpleai-uploads",
+      "enterprise_gcs_cleanup": "always"
     }
   }
 }
 ```
 *(Make sure `GOOGLE_APPLICATION_CREDENTIALS` is still set in the environment where the app is running!)*
 
-## Vertex File Upload Behavior
+## Legacy setting names
 
-- If `use_vertexai=true` and `vertexai_gcs_bucket` is configured, `simpleai` uploads local files to GCS and passes `gs://...` URIs to Gemini (true binary path).
-- If `vertexai_gcs_bucket` is not configured, `simpleai` falls back to extracting file text and appending it to the prompt.
-- `vertexai_gcs_cleanup` controls object cleanup:
+Older configs may still use `use_vertexai`, `vertexai_*` keys, or `GEMINI_USE_VERTEXAI` / `GEMINI_VERTEXAI_*` env vars. Those continue to work; prefer the `enterprise_*` names for new projects.
+
+## Enterprise (GCP) file upload behavior
+
+- If `use_enterprise=true` and `enterprise_gcs_bucket` is configured, `simpleai` uploads local files to GCS and passes `gs://...` URIs to Gemini (true binary path).
+- If `enterprise_gcs_bucket` is not configured, `simpleai` falls back to extracting file text and appending it to the prompt.
+- `enterprise_gcs_cleanup` controls object cleanup:
   - `always` (default): delete uploaded objects after each request, whether success or failure.
   - `on_success`: delete only when model generation succeeds.
   - `never`: keep objects in the bucket.

@@ -235,7 +235,7 @@ SIMPLEAI = {
         "gemini": {
             "api_key": "...", 
             "default_model": "gemini-3.5-flash",
-            "use_vertexai": False,  # Set to True and provide project/location to use Vertex AI
+            "use_enterprise": False,  # True = GCP enterprise path; see README_VERTEX_AI.md
         },
         "openai": {"api_key": "...", "default_model": "gpt-5.5"},
         "claude": {"api_key": "...", "default_model": "claude-opus-4-7"},

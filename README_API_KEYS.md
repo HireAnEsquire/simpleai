@@ -38,21 +38,21 @@ SimpleAI supports both the standard Google AI Studio API (default) and Google Cl
 Docs:
 - [Gemini API quickstart](https://ai.google.dev/gemini-api/docs/quickstart)
 
-### Option 2: Vertex AI
+### Option 2: Gemini Enterprise (GCP / Vertex AI)
 
-If you need enterprise features or specific compliance guarantees, you can switch the adapter to use Vertex AI. 
+If you need enterprise features or specific compliance guarantees, you can switch the adapter to the Gemini Enterprise Agent Platform (GCP). 
 
 For full step-by-step instructions on setting up a Google Cloud Project, Service Account, and downloading credentials, see the **[Vertex AI Setup Guide](README_VERTEX_AI.md)**.
 
 **Configuration:**
 
-Once your credentials are set up (via the `GOOGLE_APPLICATION_CREDENTIALS` environment variable), you can switch to Vertex AI by configuring `.env` variables or through Django/`ai_settings.json`.
+Once your credentials are set up (via the `GOOGLE_APPLICATION_CREDENTIALS` environment variable), configure `.env` variables or Django/`ai_settings.json`.
 
 **Via Environment Variables (`.env`):**
 ```env
-GEMINI_USE_VERTEXAI=true
-GEMINI_VERTEXAI_PROJECT=your-google-cloud-project-id
-GEMINI_VERTEXAI_LOCATION=us-central1
+GEMINI_USE_ENTERPRISE=true
+GEMINI_ENTERPRISE_PROJECT=your-google-cloud-project-id
+GEMINI_ENTERPRISE_LOCATION=us-central1
 ```
 
 **Via Django `settings.py` / `ai_settings.json`:**
@@ -60,15 +60,15 @@ GEMINI_VERTEXAI_LOCATION=us-central1
 {
   "providers": {
     "gemini": {
-      "use_vertexai": true,
-      "vertexai_project": "your-google-cloud-project-id",
-      "vertexai_location": "us-central1"
+      "use_enterprise": true,
+      "enterprise_project": "your-google-cloud-project-id",
+      "enterprise_location": "us-central1"
     }
   }
 }
 ```
 
-*Note: When `use_vertexai` is `true`, the `api_key` setting is ignored and standard GCP authentication is used instead.*
+*Note: When `use_enterprise` is `true`, the `api_key` setting is ignored and standard GCP authentication is used instead. Legacy `use_vertexai` / `vertexai_*` / `GEMINI_VERTEXAI_*` names are still accepted.*
 
 ## xAI (Grok)
 
