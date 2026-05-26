@@ -1,7 +1,5 @@
 """Reasoning level normalization and provider-specific payload mapping."""
 
-from __future__ import annotations
-
 from typing import Any, Literal, TypeAlias
 
 ReasoningLevel: TypeAlias = Literal["none", "low", "medium", "high", "extra_high"]
@@ -199,7 +197,7 @@ def build_gemini_reasoning_config_kwargs(
     *,
     model: str,
 ) -> dict[str, Any]:
-    """Return GenerateContentConfig kwargs for reasoning (thinking_config or thinking_budget)."""
+    """Return GenerateContentConfig kwargs for reasoning (thinking_config)."""
 
     if reasoning_level is None or not gemini_model_supports_thinking(model):
         return {}
@@ -208,7 +206,7 @@ def build_gemini_reasoning_config_kwargs(
         if gemini_model_supports_thinking_level(model):
             resolved: ReasoningLevel = "low"
         else:
-            return {"thinking_budget": 0}
+            return {"thinking_config": {"thinking_budget": 0}}
     else:
         resolved = resolve_reasoning_level(
             reasoning_level,
@@ -238,7 +236,7 @@ def build_gemini_reasoning_config_kwargs(
         "high": 8192,
         "extra_high": 16384,
     }
-    return {"thinking_budget": budget_map[resolved]}
+    return {"thinking_config": {"thinking_budget": budget_map[resolved]}}
 
 
 def grok_model_supports_reasoning(model: str) -> bool:
@@ -254,7 +252,7 @@ def grok_model_supports_none(model: str) -> bool:
 
 
 def grok_model_supports_extra_high(model: str) -> bool:
-    return "multi-agent" in model.lower()
+    return False
 
 
 def build_grok_reasoning_payload(
@@ -278,9 +276,9 @@ def build_grok_reasoning_payload(
         "low": "low",
         "medium": "medium",
         "high": "high",
-        "extra_high": "xhigh",
+        "extra_high": "high",
     }
-    return {"reasoning": {"effort": effort_map[resolved]}}
+    return {"reasoning_effort": effort_map[resolved]}
 
 
 def perplexity_target_supports_reasoning(target: dict[str, str]) -> bool:

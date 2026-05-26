@@ -1,7 +1,5 @@
 """Tests for reasoning_level mapping across SimpleAI adapters."""
 
-from __future__ import annotations
-
 import unittest
 from pathlib import Path
 from typing import Any
@@ -118,29 +116,29 @@ class GeminiReasoningPayloadTest(unittest.TestCase):
 
     def test_gemini_25_uses_thinking_budget(self) -> None:
         payload = build_gemini_reasoning_config_kwargs("low", model="gemini-2.5-flash")
-        self.assertEqual(payload, {"thinking_budget": 1024})
+        self.assertEqual(payload, {"thinking_config": {"thinking_budget": 1024}})
 
     def test_gemini_25_none_uses_zero_budget(self) -> None:
         payload = build_gemini_reasoning_config_kwargs("none", model="gemini-2.5-flash")
-        self.assertEqual(payload, {"thinking_budget": 0})
+        self.assertEqual(payload, {"thinking_config": {"thinking_budget": 0}})
 
 
 class GrokReasoningPayloadTest(unittest.TestCase):
     def test_none_on_standard_grok(self) -> None:
         payload = build_grok_reasoning_payload("none", model="grok-4.3")
-        self.assertEqual(payload, {"reasoning": {"effort": "none"}})
+        self.assertEqual(payload, {"reasoning_effort": "none"})
 
     def test_none_falls_back_on_multi_agent(self) -> None:
         payload = build_grok_reasoning_payload("none", model="grok-4.20-multi-agent")
-        self.assertEqual(payload, {"reasoning": {"effort": "low"}})
+        self.assertEqual(payload, {"reasoning_effort": "low"})
 
     def test_extra_high_on_multi_agent(self) -> None:
         payload = build_grok_reasoning_payload("extra_high", model="grok-4.20-multi-agent")
-        self.assertEqual(payload, {"reasoning": {"effort": "xhigh"}})
+        self.assertEqual(payload, {"reasoning_effort": "high"})
 
     def test_extra_high_falls_back_on_standard_grok(self) -> None:
         payload = build_grok_reasoning_payload("extra_high", model="grok-4.3")
-        self.assertEqual(payload, {"reasoning": {"effort": "high"}})
+        self.assertEqual(payload, {"reasoning_effort": "high"})
 
 
 class PerplexityReasoningPayloadTest(unittest.TestCase):
@@ -250,7 +248,7 @@ class AdapterRunReasoningIntegrationTest(unittest.TestCase):
         )
 
         payload = client.chat.create.call_args.kwargs
-        self.assertEqual(payload["reasoning"], {"effort": "none"})
+        self.assertEqual(payload["reasoning_effort"], "none")
 
     @patch("perplexity.Perplexity")
     def test_perplexity_adapter_passes_reasoning_effort(self, perplexity_cls: MagicMock) -> None:
