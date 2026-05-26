@@ -597,10 +597,20 @@ class GeminiAdapter(BaseAdapter):
                     raw=item,
                 )
 
-            # Grounding metadata from Google Search tool.
+            # Grounding metadata from Google Search tool. Only groundingSupports connect
+            # model response spans to groundingChunks, so raw chunks without supports are
+            # treated as candidate sources rather than returned citations.
             grounding = candidate.get("grounding_metadata") or candidate.get("groundingMetadata") or {}
             chunks = grounding.get("grounding_chunks") or grounding.get("groundingChunks") or []
-            for chunk in chunks:
+            supports = grounding.get("grounding_supports") or grounding.get("groundingSupports") or []
+
+            def append_grounding_chunk(
+                chunk: dict[str, Any],
+                *,
+                support: dict[str, Any],
+                start_index: int | None,
+                end_index: int | None,
+            ) -> None:
                 web = chunk.get("web") or {}
                 if web:
                     append_citation(
@@ -608,8 +618,11 @@ class GeminiAdapter(BaseAdapter):
                         title=web.get("title"),
                         source=web.get("domain") or web.get("uri") or web.get("url"),
                         snippet=None,
-                        raw=chunk,
+                        start_index=start_index,
+                        end_index=end_index,
+                        raw={"grounding_chunk": chunk, "grounding_support": support},
                     )
+                    return
 
                 retrieved = chunk.get("retrieved_context") or chunk.get("retrievedContext") or {}
                 if retrieved:
@@ -620,8 +633,11 @@ class GeminiAdapter(BaseAdapter):
                         or retrieved.get("documentName"),
                         source=retrieved.get("document_name") or retrieved.get("documentName") or retrieved.get("uri"),
                         snippet=retrieved.get("text"),
-                        raw=chunk,
+                        start_index=start_index,
+                        end_index=end_index,
+                        raw={"grounding_chunk": chunk, "grounding_support": support},
                     )
+                    return
 
                 maps = chunk.get("maps") or {}
                 if maps:
@@ -630,27 +646,41 @@ class GeminiAdapter(BaseAdapter):
                         title=maps.get("title"),
                         source="google_maps",
                         snippet=maps.get("text"),
-                        raw=chunk,
+                        start_index=start_index,
+                        end_index=end_index,
+                        raw={"grounding_chunk": chunk, "grounding_support": support},
                     )
 
-            # Query metadata can still be useful provenance even when chunks are absent.
-            for query in grounding.get("web_search_queries") or grounding.get("webSearchQueries") or []:
-                append_citation(
-                    url=None,
-                    title=None,
-                    source="google_search_query",
-                    snippet=str(query),
-                    raw={"query": query},
+            for support in supports:
+                if not isinstance(support, dict):
+                    continue
+                segment = support.get("segment") or {}
+                start_index = segment.get("start_index") or segment.get("startIndex")
+                end_index = segment.get("end_index") or segment.get("endIndex")
+                indices = (
+                    support.get("grounding_chunk_indices")
+                    or support.get("groundingChunkIndices")
+                    or []
                 )
+                for index in indices:
+                    if not isinstance(index, int) or index < 0 or index >= len(chunks):
+                        continue
+                    chunk = chunks[index]
+                    if isinstance(chunk, dict):
+                        append_grounding_chunk(
+                            chunk,
+                            support=support,
+                            start_index=start_index,
+                            end_index=end_index,
+                        )
 
         return citations
 
     _SEARCH_INSTRUCTION = (
         "You are an expert researcher. You must ALWAYS use the Google Search tool to ground your answer, "
         "even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. "
-        "Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list "
-        "of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the "
-        "text that map to the sources you used."
+        "Do not cite links that result in a 404 or 5xx error. Cite every factual claim with provider-native "
+        "Google grounding citations. If a claim cannot be cited, omit it."
     )
 
     def _collect_citations_followup(
@@ -668,8 +698,9 @@ class GeminiAdapter(BaseAdapter):
 
         followup_prompt = (
             "Use Google Search to find citations supporting this structured answer. "
-            "Ensure that all cited URLs are publicly accessible. Prefer official sources and include "
-            "company homepages when relevant.\n\n"
+            "Return a concise cited explanation of the facts in the structured answer. Ensure that all cited URLs "
+            "are publicly accessible. Every factual claim must have provider-native Google grounding citations. "
+            "If a claim cannot be cited, omit it. Prefer official sources and include company homepages when relevant.\n\n"
             f"Structured answer:\n{preview}"
         )
         config_kwargs: dict[str, Any] = {
@@ -801,9 +832,15 @@ class GeminiAdapter(BaseAdapter):
                     adapter_options=adapter_options,
                     reasoning_level=reasoning_level,
                 )
+            if return_citations and require_search and not citations:
+                raise ProviderError(
+                    "Gemini did not return provider-anchored grounding citations after a citation follow-up pass."
+                )
             generation_succeeded = True
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 
+        except ProviderError:
+            raise
         except Exception as exc:  # pragma: no cover - network/provider behavior
             raise ProviderError(f"Gemini adapter failed: {exc}") from exc
         finally:

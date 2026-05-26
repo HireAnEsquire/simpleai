@@ -106,13 +106,93 @@ def test_openai_adapter_payload_and_citations(tmp_path: Path) -> None:
     assert response.text == "ok"
     urls = {c.url for c in response.citations}
     assert "https://example.com" in urls
-    assert "https://source.example" in urls
+    assert "https://source.example" not in urls
     assert fake_responses.payload["tools"] == [{"type": "web_search"}]
     assert fake_responses.payload["tool_choice"] == "required"
     assert fake_responses.payload["include"] == ["web_search_call.action.sources"]
     assert fake_responses.payload["text"]["format"]["type"] == "json_schema"
     assert fake_responses.payload["text"]["format"]["schema"]["additionalProperties"] is False
     assert fake_responses.payload["temperature"] == 0.2
+
+
+def test_openai_adapter_retries_when_search_sources_are_uncited() -> None:
+    class FakeOpenAIResponse:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self._payload = payload
+            self.output_text = payload["output"][0]["content"][0]["text"]
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return self._payload
+
+    class FakeResponses:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return FakeOpenAIResponse(
+                    {
+                        "output": [
+                            {
+                                "type": "message",
+                                "content": [{"type": "output_text", "text": "uncited answer"}],
+                            },
+                            {
+                                "type": "web_search_call",
+                                "action": {
+                                    "sources": [
+                                        {"url": "https://source.example", "title": "Source"}
+                                    ]
+                                },
+                            },
+                        ]
+                    }
+                )
+            return FakeOpenAIResponse(
+                {
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "cited answer",
+                                    "annotations": [
+                                        {
+                                            "type": "url_citation",
+                                            "url_citation": {
+                                                "url": "https://cited.example",
+                                                "title": "Cited",
+                                                "start_index": 0,
+                                                "end_index": 5,
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
+
+    fake_responses = FakeResponses()
+    adapter = OpenAIAdapter({"api_key": "sk-test"})
+    adapter.client = SimpleNamespace(files=SimpleNamespace(), responses=fake_responses)
+
+    response = adapter.run(
+        prompt="hello",
+        model="gpt-5",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=None,
+        adapter_options=None,
+    )
+
+    assert response.text == "cited answer"
+    assert [c.url for c in response.citations] == ["https://cited.example"]
+    assert len(fake_responses.calls) == 2
 
 
 def test_anthropic_adapter_payload_and_citations() -> None:
@@ -245,6 +325,13 @@ def test_anthropic_adapter_synthesizes_when_search_turn_has_no_text() -> None:
                         {
                             "type": "text",
                             "text": "{\"value\": 42}",
+                            "citations": [
+                                {
+                                    "url": "https://company.example",
+                                    "title": "Company Site",
+                                    "cited_text": "Company reference",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -298,9 +385,14 @@ def test_anthropic_adapter_collects_citations_with_second_pass_when_schema_hides
                 {
                     "content": [
                         {
-                            "type": "web_search_tool_result",
-                            "content": [
-                                {"title": "Ref", "url": "https://citation.example"}
+                            "type": "text",
+                            "text": "The value is supported.",
+                            "citations": [
+                                {
+                                    "title": "Ref",
+                                    "url": "https://citation.example",
+                                    "cited_text": "reference",
+                                }
                             ],
                         }
                     ]
@@ -348,7 +440,13 @@ def test_gemini_adapter_payload_and_citations(tmp_path: Path) -> None:
                                         "domain": "gemini.example",
                                     }
                                 }
-                            ]
+                            ],
+                            "grounding_supports": [
+                                {
+                                    "segment": {"startIndex": 0, "endIndex": 6},
+                                    "groundingChunkIndices": [0],
+                                }
+                            ],
                         }
                     }
                 ]
@@ -388,9 +486,7 @@ def test_gemini_adapter_payload_and_citations(tmp_path: Path) -> None:
     assert response.text == "gemini answer"
     assert response.citations[0].url == "https://gemini.example"
     assert fake_models.payload["model"] == "gemini-2.5-pro"
-    assert fake_models.payload["config"].system_instruction == (
-        "You are an expert researcher. You must ALWAYS use the Google Search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
-    )
+    assert "provider-native Google grounding citations" in fake_models.payload["config"].system_instruction
 
 
 def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> None:
@@ -411,7 +507,7 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
         def __init__(self, **kwargs) -> None:
             self.kwargs = kwargs
             self.models = FakeModels()
-            
+
         @property
         def files(self):
             class FakeFiles:
@@ -433,13 +529,13 @@ def test_gemini_adapter_vertexai_global_location_override(tmp_path: Path) -> Non
         "enterprise_location": "us-central1",
     })
     assert adapter.supports_binary_files is False
-    
+
     fake_genai = FakeGenAI()
     adapter._genai = fake_genai
-    
+
     # We swap adapter.client to None so if it uses it by mistake it throws
     adapter.client = None
-    
+
     # Run with 3.1 model to test global override
     adapter.run(
         prompt="hello",
@@ -834,23 +930,41 @@ def test_grok_adapter_payload_and_citations(tmp_path: Path) -> None:
     assert fake_chat.payload["temperature"] == 0.4
 
 
-def test_grok_adapter_falls_back_to_response_citations() -> None:
+def test_grok_adapter_retries_when_response_citations_are_unanchored() -> None:
+    class FakeInlineCitation:
+        id = "2"
+        start_index = 0
+        end_index = 5
+        title = "Anchored Grok Article"
+        web_citation = SimpleNamespace(url="https://anchored.example")
+
+        def HasField(self, field: str) -> bool:
+            return field == "web_citation"
+
     class FakeGrokResponse:
-        def __init__(self) -> None:
-            self.content = '{"value": 1}'
+        def __init__(self, *, inline: bool) -> None:
+            self.content = "follow-up answer" if inline else '{"value": 1}'
             self.citations = ["https://grok.example", "https://other.example"]
-            self.inline_citations = []
+            self.inline_citations = [FakeInlineCitation()] if inline else []
 
     class FakeChatSession:
+        def __init__(self, response: FakeGrokResponse) -> None:
+            self._response = response
+
         def sample(self):
-            return FakeGrokResponse()
+            return self._response
 
     class FakeChatClient:
-        def create(self, **kwargs):
-            return FakeChatSession()
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
 
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return FakeChatSession(FakeGrokResponse(inline=len(self.calls) > 1))
+
+    fake_chat = FakeChatClient()
     adapter = GrokAdapter({"api_key": "test"})
-    adapter.client = SimpleNamespace(chat=FakeChatClient(), files=SimpleNamespace(upload=lambda path: SimpleNamespace(id="f1")))
+    adapter.client = SimpleNamespace(chat=fake_chat, files=SimpleNamespace(upload=lambda path: SimpleNamespace(id="f1")))
     adapter.chat_helpers = SimpleNamespace(
         system=lambda text: {"role": "system", "parts": [text]},
         user=lambda *parts: {"role": "user", "parts": list(parts)},
@@ -868,9 +982,9 @@ def test_grok_adapter_falls_back_to_response_citations() -> None:
         adapter_options=None,
     )
 
-    assert len(response.citations) == 2
-    assert response.citations[0].url == "https://grok.example"
-    assert response.citations[1].url == "https://other.example"
+    assert response.text == '{"value": 1}'
+    assert [c.url for c in response.citations] == ["https://anchored.example"]
+    assert len(fake_chat.calls) == 2
 
 
 def test_gemini_adapter_collects_citations_with_followup_when_schema_hides_grounding() -> None:
@@ -894,7 +1008,13 @@ def test_gemini_adapter_collects_citations_with_followup_when_schema_hides_groun
                                         "domain": "followup.example",
                                     }
                                 }
-                            ]
+                            ],
+                            "grounding_supports": [
+                                {
+                                    "segment": {"startIndex": 0, "endIndex": 8},
+                                    "groundingChunkIndices": [0],
+                                }
+                            ],
                         }
                     }
                 ]
@@ -935,42 +1055,81 @@ def test_gemini_adapter_collects_citations_with_followup_when_schema_hides_groun
     assert fake_models.calls == 2
 
 
-def test_perplexity_adapter_returns_search_results_for_structured_output() -> None:
+def test_perplexity_adapter_uses_followup_for_structured_output_citations() -> None:
     class FakePerplexityResponse:
-        output_text = '{"value": 1}'
+        def __init__(self, payload: dict[str, Any], text: str) -> None:
+            self._payload = payload
+            self.output_text = text
 
         def model_dump(self, mode: str = "json") -> dict[str, Any]:
-            return {
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": '{"value": 1}',
-                            }
-                        ],
-                    },
-                    {
-                        "type": "search_results",
-                        "results": [
-                            {
-                                "url": "https://structured.example",
-                                "title": "Structured Source",
-                                "source": "web",
-                                "snippet": "snippet",
-                            }
-                        ],
-                    },
-                ]
-            }
+            return self._payload
 
     class FakeResponses:
-        def create(self, **kwargs):
-            return FakePerplexityResponse()
+        def __init__(self) -> None:
+            self.calls = 0
 
+        def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return FakePerplexityResponse(
+                    {
+                        "output": [
+                            {
+                                "type": "message",
+                                "content": [
+                                    {
+                                        "type": "output_text",
+                                        "text": '{"value": 1}',
+                                    }
+                                ],
+                            },
+                            {
+                                "type": "search_results",
+                                "results": [
+                                    {
+                                        "url": "https://structured.example",
+                                        "title": "Structured Source",
+                                        "source": "web",
+                                        "snippet": "snippet",
+                                    }
+                                ],
+                            },
+                        ]
+                    },
+                    '{"value": 1}',
+                )
+            return FakePerplexityResponse(
+                {
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "Structured value is supported [1].",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "search_results",
+                            "results": [
+                                {
+                                    "id": 1,
+                                    "url": "https://structured.example",
+                                    "title": "Structured Source",
+                                    "source": "web",
+                                    "snippet": "snippet",
+                                }
+                            ],
+                        },
+                    ]
+                },
+                "Structured value is supported [1].",
+            )
+
+    fake_responses = FakeResponses()
     adapter = PerplexityAdapter({"api_key": "test"})
-    adapter.client = SimpleNamespace(responses=FakeResponses())
+    adapter.client = SimpleNamespace(responses=fake_responses)
 
     response = adapter.run(
         prompt="hello",
@@ -982,9 +1141,11 @@ def test_perplexity_adapter_returns_search_results_for_structured_output() -> No
         adapter_options=None,
     )
 
+    assert response.text == '{"value": 1}'
     assert len(response.citations) == 1
     assert response.citations[0].url == "https://structured.example"
     assert response.citations[0].title == "Structured Source"
+    assert fake_responses.calls == 2
 
 
 def test_perplexity_adapter_payload_and_citations() -> None:
@@ -1073,7 +1234,11 @@ def test_perplexity_adapter_payload_and_citations() -> None:
     assert fake_responses.payload["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
 
 
-def test_perplexity_adapter_does_not_return_uncited_search_results() -> None:
+def test_perplexity_adapter_rejects_uncited_search_results() -> None:
+    import pytest
+
+    from simpleai.exceptions import ProviderError
+
     class FakePerplexityResponse:
         output_text = "perplexity answer"
 
@@ -1104,23 +1269,29 @@ def test_perplexity_adapter_does_not_return_uncited_search_results() -> None:
             }
 
     class FakeResponses:
+        def __init__(self) -> None:
+            self.calls = 0
+
         def create(self, **kwargs):
+            self.calls += 1
             return FakePerplexityResponse()
 
+    fake_responses = FakeResponses()
     adapter = PerplexityAdapter({"api_key": "test"})
-    adapter.client = SimpleNamespace(responses=FakeResponses())
+    adapter.client = SimpleNamespace(responses=fake_responses)
 
-    response = adapter.run(
-        prompt="hello",
-        model="sonar-pro",
-        require_search=True,
-        return_citations=True,
-        files=None,
-        output_format=None,
-        adapter_options=None,
-    )
+    with pytest.raises(ProviderError, match="Raw search_results were treated as candidate sources"):
+        adapter.run(
+            prompt="hello",
+            model="sonar-pro",
+            require_search=True,
+            return_citations=True,
+            files=None,
+            output_format=None,
+            adapter_options=None,
+        )
 
-    assert response.citations == []
+    assert fake_responses.calls == 2
 
 
 def test_perplexity_adapter_returns_cited_search_results_from_text_markers() -> None:

@@ -135,7 +135,7 @@ class PerplexityAdapter(BaseAdapter):
                     url = result.get("url")
                     if url and url not in search_results_by_url:
                         search_results_by_url[url] = result
-                    
+
                     # Some responses use explicit IDs; others rely on 1-based index of the search result.
                     result_id = result.get("id")
                     if not isinstance(result_id, int):
@@ -163,7 +163,7 @@ class PerplexityAdapter(BaseAdapter):
             key = (url, title, source_label, snippet, start_index, end_index)
             if key in seen_keys:
                 return seen_keys[key]
-            
+
             citations.append(
                 Citation(
                     provider=self.provider_name,
@@ -234,97 +234,37 @@ class PerplexityAdapter(BaseAdapter):
 
         return citations, marker_mapping
 
-    def _extract_structured_output_search_citations(self, response_dict: dict[str, Any]) -> list[Citation]:
-        """Return search tool results when structured JSON output omits inline markers."""
-
-        citations: list[Citation] = []
-        seen_keys: dict[tuple[Any, ...], int] = {}
-
-        def append_citation(
-            *,
-            url: str | None,
-            title: str | None,
-            source: str | None,
-            snippet: str | None = None,
-            raw: dict[str, Any],
-        ) -> None:
-            if not url and not title and not source:
-                return
-            source_label = self._normalize_source_label(url=url, title=title, source=source)
-            key = (url, title, source_label, snippet)
-            if key in seen_keys:
-                return
-            citations.append(
-                Citation(
-                    provider=self.provider_name,
-                    url=url,
-                    title=title,
-                    source=source_label,
-                    snippet=snippet,
-                    raw=raw,
-                )
-            )
-            seen_keys[key] = len(citations)
-
-        for output_item in response_dict.get("output", []):
-            if not isinstance(output_item, dict):
-                continue
-            output_type = output_item.get("type")
-            if output_type == "search_results":
-                for result in output_item.get("results") or []:
-                    if not isinstance(result, dict):
-                        continue
-                    append_citation(
-                        url=result.get("url"),
-                        title=result.get("title"),
-                        source=result.get("source"),
-                        snippet=result.get("snippet"),
-                        raw={"search_result": result},
-                    )
-            elif output_type == "web_search_call":
-                for src in (output_item.get("action") or {}).get("sources") or []:
-                    if not isinstance(src, dict):
-                        continue
-                    append_citation(
-                        url=src.get("url"),
-                        title=src.get("title"),
-                        source=src.get("type") or src.get("source"),
-                        snippet=None,
-                        raw=src,
-                    )
-            elif output_type == "fetch_url_results":
-                for index, result in enumerate(output_item.get("contents") or [], start=1):
-                    if not isinstance(result, dict):
-                        continue
-                    append_citation(
-                        url=result.get("url"),
-                        title=result.get("title"),
-                        source=None,
-                        snippet=result.get("snippet"),
-                        raw={"fetch_url_result": result, "index": index},
-                    )
-
-        return citations
-
     def _collect_citations_followup(
         self,
         *,
         model: str,
+        prompt: PromptInput,
         text: str,
         target: dict[str, str],
         adapter_options: dict[str, Any] | None,
         reasoning_level: ReasoningLevel | None,
-    ) -> list[Citation]:
+        structured_output: bool,
+    ) -> tuple[str, list[Citation]]:
         preview = text.strip()[:4000]
         if not preview:
-            return []
+            return "", []
 
-        followup_prompt = (
-            "Find web citations supporting this structured answer. "
-            "Ensure cited URLs are publicly accessible. Prefer official sources and include "
-            "company homepages when relevant.\n\n"
-            f"Structured answer:\n{preview}"
-        )
+        if structured_output:
+            followup_prompt = (
+                "Find web citations supporting this structured answer. "
+                "Return a concise cited explanation of the facts in the structured answer. "
+                "Every factual claim must use inline citation markers that map to search_results. "
+                "Ensure cited URLs are publicly accessible. Prefer official sources and include "
+                "company homepages when relevant.\n\n"
+                f"Structured answer:\n{preview}"
+            )
+        else:
+            original_prompt = prompt if isinstance(prompt, str) else "\n\n".join(str(item) for item in prompt)
+            followup_prompt = (
+                "Answer the original request again using web search. Every factual claim must use inline "
+                "citation markers that map to search_results. If a claim cannot be cited, omit it.\n\n"
+                f"Original request:\n{original_prompt}\n\nPrevious uncited answer:\n{preview}"
+            )
         payload: dict[str, Any] = {
             "input": followup_prompt,
             **target,
@@ -344,10 +284,48 @@ class PerplexityAdapter(BaseAdapter):
 
         response = self.client.responses.create(**payload)
         response_dict = response.model_dump(mode="json") if hasattr(response, "model_dump") else {}
-        citations, _ = self._extract_citations(response_dict)
-        if not citations:
-            citations = self._extract_structured_output_search_citations(response_dict)
-        return citations
+        followup_text = getattr(response, "output_text", "") or ""
+        if not followup_text and response_dict:
+            chunks: list[str] = []
+            for output in response_dict.get("output", []):
+                if output.get("type") != "message":
+                    continue
+                for part in output.get("content", []):
+                    if part.get("type") == "output_text":
+                        chunks.append(part.get("text", ""))
+            followup_text = "".join(chunks)
+
+        citations, marker_mapping = self._extract_citations(response_dict)
+        if marker_mapping and followup_text:
+            followup_text = self._rewrite_citation_markers(followup_text, marker_mapping)
+        return followup_text, citations
+
+    def _rewrite_citation_markers(
+        self,
+        text: str,
+        marker_mapping: dict[tuple[str | None, int], int],
+    ) -> str:
+        def rewrite_citations(match: re.Match) -> str:
+            raw_content = match.group(1).strip()
+            parts = [p.strip() for p in raw_content.split(",")]
+            new_parts = []
+            for p in parts:
+                token_match = self._CITATION_TOKEN_RE.fullmatch(p)
+                if token_match:
+                    kind = token_match.group("kind")
+                    idx = int(token_match.group("index"))
+                    new_idx = marker_mapping.get((kind, idx))
+                    if new_idx is not None:
+                        new_parts.append(str(new_idx))
+                    else:
+                        new_parts.append(p)
+                else:
+                    new_parts.append(p)
+            if not new_parts:
+                return ""
+            return f"[{', '.join(new_parts)}]"
+
+        return self._CITATION_BLOCK_RE.sub(rewrite_citations, text)
 
     def _extract_citation_references(self, text: str) -> list[tuple[str, str | None, int]]:
         references: list[tuple[str, str | None, int]] = []
@@ -470,47 +448,35 @@ class PerplexityAdapter(BaseAdapter):
             marker_mapping: dict[tuple[str | None, int], int] = {}
             if return_citations:
                 citations, marker_mapping = self._extract_citations(response_dict)
-                if output_format is not None and not citations:
-                    citations = self._extract_structured_output_search_citations(response_dict)
-                    marker_mapping = {}
                 if (
                     require_search
-                    and output_format is not None
                     and not citations
                     and not self._skip_citation_followup
                 ):
-                    citations = self._collect_citations_followup(
+                    followup_text, citations = self._collect_citations_followup(
                         model=model,
+                        prompt=prompt,
                         text=text,
                         target=target,
                         adapter_options=adapter_options,
                         reasoning_level=reasoning_level,
+                        structured_output=output_format is not None,
                     )
                     marker_mapping = {}
+                    if output_format is None and citations and followup_text:
+                        text = followup_text
                 if marker_mapping and text:
-                    def rewrite_citations(match: re.Match) -> str:
-                        raw_content = match.group(1).strip()
-                        parts = [p.strip() for p in raw_content.split(",")]
-                        new_parts = []
-                        for p in parts:
-                            token_match = self._CITATION_TOKEN_RE.fullmatch(p)
-                            if token_match:
-                                kind = token_match.group("kind")
-                                idx = int(token_match.group("index"))
-                                new_idx = marker_mapping.get((kind, idx))
-                                if new_idx is not None:
-                                    new_parts.append(str(new_idx))
-                                else:
-                                    new_parts.append(p)
-                            else:
-                                new_parts.append(p)
-                        if not new_parts:
-                            return ""
-                        return f"[{', '.join(new_parts)}]"
+                    text = self._rewrite_citation_markers(text, marker_mapping)
 
-                    text = self._CITATION_BLOCK_RE.sub(rewrite_citations, text)
-            
+                if require_search and not citations:
+                    raise ProviderError(
+                        "Perplexity did not return provider-anchored citations after a citation follow-up pass. "
+                        "Raw search_results were treated as candidate sources, not citations."
+                    )
+
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 
+        except ProviderError:
+            raise
         except Exception as exc:  # pragma: no cover - network/provider behavior
             raise ProviderError(f"Perplexity adapter failed: {exc}") from exc

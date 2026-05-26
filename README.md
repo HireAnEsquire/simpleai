@@ -110,6 +110,11 @@ def run_prompt(
 
 When `return_citations=True`, the second element of the return tuple is a list of citation dictionaries.
 
+SimpleAI only returns provider-anchored citations: inline URL annotations, text citation blocks, or
+grounding supports that the provider ties back to generated content. Raw search result lists and
+source pools are kept in the raw provider payload for debugging, but they are not returned as
+citations unless the generated answer actually cites them.
+
 Each citation object includes:
 - raw provider fields (`original_*`)
 - normalized fields (`url`, `title`, `source`)
@@ -233,7 +238,7 @@ SIMPLEAI = {
     "defaults": ["gemini", "openai", "claude", "grok", "perplexity"],
     "providers": {
         "gemini": {
-            "api_key": "...", 
+            "api_key": "...",
             "default_model": "gemini-3.5-flash",
             "use_enterprise": False,  # True = GCP enterprise path; see README_VERTEX_AI.md
         },

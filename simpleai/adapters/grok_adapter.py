@@ -18,6 +18,13 @@ class GrokAdapter(BaseAdapter):
     provider_name = "grok"
     supports_binary_files = True
 
+    _SEARCH_INSTRUCTION = (
+        "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, "
+        "even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. "
+        "Do not cite links that result in a 404 or 5xx error. Cite every factual claim with provider-native "
+        "inline citations. If a claim cannot be cited, omit it."
+    )
+
     def __init__(self, provider_settings: dict[str, Any]) -> None:
         super().__init__(provider_settings)
 
@@ -51,9 +58,7 @@ class GrokAdapter(BaseAdapter):
         messages: list[Any] = []
         if require_search:
             messages.append(
-                self.chat_helpers.system(
-                    "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
-                )
+                self.chat_helpers.system(self._SEARCH_INSTRUCTION)
             )
 
         if isinstance(prompt, str):
@@ -116,7 +121,12 @@ class GrokAdapter(BaseAdapter):
         seen.add(key)
         citations.append(item)
 
-    def _extract_citations_from_dict(self, payload: dict[str, Any], citations: list[Citation], seen: set[tuple[Any, ...]]) -> None:
+    def _extract_citations_from_dict(
+        self,
+        payload: dict[str, Any],
+        citations: list[Citation],
+        seen: set[tuple[Any, ...]],
+    ) -> None:
         for output in payload.get("output", []):
             if not isinstance(output, dict):
                 continue
@@ -139,22 +149,6 @@ class GrokAdapter(BaseAdapter):
                             end_index=annotation.get("end_index"),
                             raw=annotation,
                         )
-            if output.get("type") == "web_search_call":
-                action = output.get("action") or {}
-                for src in action.get("sources") or []:
-                    if not isinstance(src, dict):
-                        continue
-                    url = src.get("url")
-                    title = src.get("title")
-                    source = src.get("type") or src.get("source") or url
-                    self._append_citation(
-                        citations,
-                        seen,
-                        url=url,
-                        title=title,
-                        source=source,
-                        raw=src,
-                    )
 
     def _extract_citations(self, response: Any) -> list[Citation]:
         citations: list[Citation] = []
@@ -203,22 +197,56 @@ class GrokAdapter(BaseAdapter):
         if isinstance(proto, dict):
             self._extract_citations_from_dict(proto, citations, seen)
 
-        # Structured outputs often omit inline markers; xAI still returns all searched URLs.
-        if not citations:
-            for url in getattr(response, "citations", []) or []:
-                if not url:
-                    continue
-                url_text = str(url)
-                self._append_citation(
-                    citations,
-                    seen,
-                    url=url_text,
-                    title=None,
-                    source=url_text,
-                    raw={"source": "response.citations", "url": url_text},
-                )
-
         return citations
+
+    def _collect_citations_followup(
+        self,
+        *,
+        model: str,
+        prompt: PromptInput,
+        text: str,
+        adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None,
+        structured_output: bool,
+    ) -> tuple[str, list[Citation], dict[str, Any]]:
+        preview = text.strip()[:4000]
+        if structured_output:
+            followup_prompt = (
+                "Use web search to verify this structured answer. Return a concise cited explanation "
+                "of the facts in the structured answer. Every factual claim must have an inline citation. "
+                "If you cannot cite a claim, omit it.\n\n"
+                f"Structured answer:\n{preview}"
+            )
+        else:
+            original_prompt = prompt if isinstance(prompt, str) else "\n\n".join(str(item) for item in prompt)
+            followup_prompt = (
+                "Answer the original request again using web search. Every factual claim must have "
+                "an inline citation. If you cannot cite a claim, omit it.\n\n"
+                f"Original request:\n{original_prompt}\n\nPrevious uncited answer:\n{preview}"
+            )
+
+        create_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": self._build_messages(followup_prompt, None, require_search=True),
+            "max_tokens": int(self.provider_settings.get("max_tokens", 8192)),
+            "tools": [self.xai_tools.web_search()],
+            "tool_choice": "required",
+            "max_turns": int(self.provider_settings.get("max_turns", 12)),
+            "include": ["inline_citations", "web_search_call_output"],
+        }
+        merge_reasoning_payload(create_kwargs, build_grok_reasoning_payload(reasoning_level, model=model))
+        if adapter_options:
+            passthrough = {
+                key: value
+                for key, value in adapter_options.items()
+                if key not in {"include", "messages", "response_format", "tool_choice", "tools"}
+            }
+            create_kwargs.update(passthrough)
+
+        chat = self.client.chat.create(**create_kwargs)
+        response = chat.sample()
+        followup_text = getattr(response, "content", "")
+        return followup_text, self._extract_citations(response), self._raw_response(response)
 
     def _raw_response(self, response: Any) -> dict[str, Any]:
         raw: dict[str, Any] = {
@@ -276,12 +304,36 @@ class GrokAdapter(BaseAdapter):
             response = chat.sample()
             text = getattr(response, "content", "")
             citations = self._extract_citations(response) if return_citations else []
+            raw = self._raw_response(response)
+
+            if return_citations and require_search and not citations:
+                followup_text, followup_citations, followup_raw = self._collect_citations_followup(
+                    model=model,
+                    prompt=prompt,
+                    text=text,
+                    adapter_options=adapter_options,
+                    reasoning_level=reasoning_level,
+                    structured_output=output_format is not None,
+                )
+                if followup_citations:
+                    citations = followup_citations
+                    raw["citation_followup"] = followup_raw
+                    if output_format is None and followup_text:
+                        text = followup_text
+
+            if return_citations and require_search and not citations:
+                raise ProviderError(
+                    "Grok did not return provider-anchored inline citations after a citation follow-up pass. "
+                    "Bare response.citations URLs were treated as candidate sources, not citations."
+                )
 
             return AdapterResponse(
                 text=text,
                 citations=citations,
-                raw=self._raw_response(response),
+                raw=raw,
             )
 
+        except ProviderError:
+            raise
         except Exception as exc:  # pragma: no cover - network/provider behavior
             raise ProviderError(f"Grok adapter failed: {exc}") from exc

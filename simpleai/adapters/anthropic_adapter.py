@@ -119,18 +119,6 @@ class AnthropicAdapter(BaseAdapter):
                         raw=item,
                     )
 
-            if block.get("type") == "web_search_tool_result":
-                raw_content = block.get("content") or []
-                items = [raw_content] if isinstance(raw_content, dict) else raw_content
-                for result in items:
-                    append_citation(
-                        url=result.get("url"),
-                        title=result.get("title"),
-                        source=result.get("url"),
-                        snippet=None,
-                        raw=result,
-                    )
-
         return citations
 
     def _extract_text(self, response_dict: dict[str, Any]) -> str:
@@ -207,7 +195,7 @@ class AnthropicAdapter(BaseAdapter):
                 try:
                     return self.client.messages.create(**payload)
                 except ValueError as exc:
-                    # The Anthropic SDK raises a ValueError if max_tokens could result in a 
+                    # The Anthropic SDK raises a ValueError if max_tokens could result in a
                     # response longer than 10 minutes, requiring the use of the streaming API.
                     if "Streaming is required" in str(exc):
                         with self.client.messages.stream(**payload) as stream:
@@ -261,7 +249,7 @@ class AnthropicAdapter(BaseAdapter):
                 payload["tool_choice"] = {"type": "any"}
                 payload.setdefault(
                     "system",
-                    "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
+                    "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. Cite every factual claim with provider-native web search citations. If a claim cannot be cited, omit it."
                 )
 
             if output_format is not None:
@@ -282,52 +270,6 @@ class AnthropicAdapter(BaseAdapter):
             text = self._extract_text(response_dict)
 
             citations = self._extract_citations(response_dict) if return_citations else []
-
-            # Anthropic output schemas can omit citation blocks when output_config is active.
-            # If citations were requested but absent, issue a search-only pass to collect them.
-            # Skip this if skip_citation_followup is set (helps with rate limits on Tier 1 accounts).
-            if return_citations and require_search and output_format is not None and not citations and not self._skip_citation_followup:
-                structured_preview = text.strip()[:4000] if text else ""
-                citation_prompt = (
-                    "You are an expert researcher. You must ALWAYS use the web_search tool to find citations supporting this structured answer. "
-                    "Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. "
-                    "Provide a robust, comprehensive list of citations for all factual claims. "
-                    "Prefer official sources and include company homepages when relevant.\n\n"
-                    f"Structured answer:\n{structured_preview}"
-                )
-                citation_payload: dict[str, Any] = {
-                    "model": model,
-                    "max_tokens": int(self.provider_settings.get("max_tokens", 4096)),
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [{"type": "text", "text": citation_prompt}],
-                        }
-                    ],
-                    "tools": [
-                        {
-                            "name": "web_search",
-                            "type": "web_search_20250305",
-                        }
-                    ],
-                    "tool_choice": {"type": "any"},
-                }
-                if adapter_options:
-                    citation_passthrough = dict(adapter_options)
-                    citation_passthrough.pop("output_config", None)
-                    citation_payload.update(citation_passthrough)
-
-                citation_response = self._create_with_retry(citation_payload)
-                citation_dict = (
-                    citation_response.model_dump(mode="json")
-                    if hasattr(citation_response, "model_dump")
-                    else {}
-                )
-                existing_keys = {self._citation_key(c) for c in citations}
-                for extra in self._extract_citations(citation_dict):
-                    if self._citation_key(extra) not in existing_keys:
-                        citations.append(extra)
-                        existing_keys.add(self._citation_key(extra))
 
             # If a forced search turn returns only tool blocks (no text), synthesize a final response.
             if not text:
@@ -389,7 +331,82 @@ class AnthropicAdapter(BaseAdapter):
                         text = json.dumps(block["input"], ensure_ascii=True)
                         break
 
+            # Anthropic can omit citation blocks even when search was used. If citations were requested
+            # but absent, issue a stricter cited search pass.
+            # Skip this if skip_citation_followup is set (helps with rate limits on Tier 1 accounts).
+            if (
+                return_citations
+                and require_search
+                and text.strip()
+                and not citations
+                and not self._skip_citation_followup
+            ):
+                preview = text.strip()[:4000]
+                if output_format is not None:
+                    citation_prompt = (
+                        "You are an expert researcher. You must ALWAYS use the web_search tool to find citations supporting this structured answer. "
+                        "Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. "
+                        "Return a concise cited explanation of the structured answer. Every factual claim must include a provider-native "
+                        "web search citation. If a claim cannot be cited, omit it. Prefer official sources and include company homepages when relevant.\n\n"
+                        f"Structured answer:\n{preview}"
+                    )
+                else:
+                    original_prompt = self._prompt_as_text(prompt)
+                    citation_prompt = (
+                        "Answer the original request again using web search. Ensure that all cited URLs are publicly accessible. "
+                        "Do not cite links that result in a 404 or 5xx error. Every factual claim must include a provider-native "
+                        "web search citation. If a claim cannot be cited, omit it.\n\n"
+                        f"Original request:\n{original_prompt}\n\nPrevious uncited answer:\n{preview}"
+                    )
+                citation_payload: dict[str, Any] = {
+                    "model": model,
+                    "max_tokens": int(self.provider_settings.get("max_tokens", 4096)),
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": citation_prompt}],
+                        }
+                    ],
+                    "tools": [
+                        {
+                            "name": "web_search",
+                            "type": "web_search_20250305",
+                        }
+                    ],
+                    "tool_choice": {"type": "any"},
+                }
+                if adapter_options:
+                    citation_passthrough = {
+                        key: value
+                        for key, value in adapter_options.items()
+                        if key not in {"output_config", "tool_choice", "tools"}
+                    }
+                    citation_payload.update(citation_passthrough)
+
+                citation_response = self._create_with_retry(citation_payload)
+                citation_dict = (
+                    citation_response.model_dump(mode="json")
+                    if hasattr(citation_response, "model_dump")
+                    else {}
+                )
+                existing_keys = {self._citation_key(c) for c in citations}
+                for extra in self._extract_citations(citation_dict):
+                    if self._citation_key(extra) not in existing_keys:
+                        citations.append(extra)
+                        existing_keys.add(self._citation_key(extra))
+                if output_format is None:
+                    followup_text = self._extract_text(citation_dict)
+                    if followup_text and citations:
+                        text = followup_text
+
+            if return_citations and require_search and not citations:
+                raise ProviderError(
+                    "Anthropic did not return provider-anchored web search citations after a citation follow-up pass."
+                )
+
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 
+        except ProviderError:
+            raise
         except Exception as exc:  # pragma: no cover - network/provider behavior
             raise ProviderError(f"Anthropic adapter failed: {exc}") from exc

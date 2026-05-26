@@ -129,25 +129,71 @@ class OpenAIAdapter(BaseAdapter):
                         raw=annotation,
                     )
 
-        # 2) Full source list from web_search_call output (when include contains sources).
-        for output in response_dict.get("output", []):
-            if output.get("type") != "web_search_call":
-                continue
-            action = output.get("action") or {}
-            for src in action.get("sources") or []:
-                url = src.get("url")
-                title = src.get("title")
-                source_type = src.get("type") or src.get("source")
-                append_citation(
-                    url=url,
-                    title=title,
-                    source=source_type or url,
-                    start_index=None,
-                    end_index=None,
-                    raw=src,
-                )
-
         return citations
+
+    _SEARCH_INSTRUCTION = (
+        "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, "
+        "even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. "
+        "Do not cite links that result in a 404 or 5xx error. Cite every factual claim with provider-native "
+        "inline URL citations. If a claim cannot be cited, omit it."
+    )
+
+    def _collect_citations_followup(
+        self,
+        *,
+        model: str,
+        prompt: PromptInput,
+        text: str,
+        adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None,
+        structured_output: bool,
+    ) -> tuple[str, list[Citation], dict[str, Any]]:
+        preview = text.strip()[:4000]
+        if structured_output:
+            followup_prompt = (
+                "Use web search to verify this structured answer. Return a concise cited explanation "
+                "of the facts in the structured answer. Every factual claim must have an inline URL "
+                "citation. If you cannot cite a claim, omit it.\n\n"
+                f"Structured answer:\n{preview}"
+            )
+        else:
+            original_prompt = prompt if isinstance(prompt, str) else "\n\n".join(str(item) for item in prompt)
+            followup_prompt = (
+                "Answer the original request again using web search. Every factual claim must have "
+                "an inline URL citation. If you cannot cite a claim, omit it.\n\n"
+                f"Original request:\n{original_prompt}\n\nPrevious uncited answer:\n{preview}"
+            )
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "input": self._build_input(followup_prompt, []),
+            "tools": [{"type": "web_search"}],
+            "tool_choice": "required",
+            "instructions": self._SEARCH_INSTRUCTION,
+            "include": ["web_search_call.action.sources"],
+        }
+        merge_reasoning_payload(payload, build_openai_reasoning_payload(reasoning_level, model=model))
+        if adapter_options:
+            passthrough = {
+                key: value
+                for key, value in adapter_options.items()
+                if key not in {"include", "input", "instructions", "text", "tool_choice", "tools"}
+            }
+            payload.update(passthrough)
+
+        response = self.client.responses.create(**payload)
+        response_dict = response.model_dump(mode="json") if hasattr(response, "model_dump") else {}
+        followup_text = getattr(response, "output_text", "")
+        if not followup_text and response_dict:
+            chunks: list[str] = []
+            for output in response_dict.get("output", []):
+                if output.get("type") != "message":
+                    continue
+                for part in output.get("content", []):
+                    if part.get("type") == "output_text":
+                        chunks.append(part.get("text", ""))
+            followup_text = "".join(chunks)
+        return followup_text, self._extract_citations(response_dict), response_dict
 
     def run(
         self,
@@ -161,8 +207,8 @@ class OpenAIAdapter(BaseAdapter):
         adapter_options: dict[str, Any] | None,
         reasoning_level: ReasoningLevel | None = None,
     ) -> AdapterResponse:
+        file_ids: list[str] = []
         try:
-            file_ids: list[str] = []
             if files:
                 for path in files:
                     _emit_openai_file_event(
@@ -183,10 +229,7 @@ class OpenAIAdapter(BaseAdapter):
             if require_search:
                 payload["tools"] = [{"type": "web_search"}]
                 payload["tool_choice"] = "required"
-                payload.setdefault(
-                    "instructions",
-                    "You are an expert researcher. You must ALWAYS use the web_search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used."
-                )
+                payload.setdefault("instructions", self._SEARCH_INSTRUCTION)
                 if return_citations:
                     payload["include"] = ["web_search_call.action.sources"]
 
@@ -219,16 +262,30 @@ class OpenAIAdapter(BaseAdapter):
                 text = "".join(chunks)
 
             citations = self._extract_citations(response_dict) if return_citations else []
+            if return_citations and require_search and not citations:
+                followup_text, followup_citations, followup_raw = self._collect_citations_followup(
+                    model=model,
+                    prompt=prompt,
+                    text=text,
+                    adapter_options=adapter_options,
+                    reasoning_level=reasoning_level,
+                    structured_output=output_format is not None,
+                )
+                if followup_citations:
+                    citations = followup_citations
+                    response_dict = {**response_dict, "citation_followup": followup_raw}
+                    if output_format is None and followup_text:
+                        text = followup_text
 
-            # Clean up uploaded files
-            for file_id in file_ids:
-                try:
-                    self.client.files.delete(file_id)
-                except Exception:
-                    pass  # Best-effort cleanup
+            if return_citations and require_search and not citations:
+                raise ProviderError(
+                    "OpenAI did not return provider-anchored URL citations after a citation follow-up pass."
+                )
 
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 
+        except ProviderError:
+            raise
         except Exception as exc:  # pragma: no cover - network/provider behavior
             msg = f"OpenAI adapter failed: {exc}"
 
@@ -273,3 +330,9 @@ class OpenAIAdapter(BaseAdapter):
                     msg += "\n\nRate limit headers: (not present in provider response)"
 
             raise ProviderError(msg) from exc
+        finally:
+            for file_id in file_ids:
+                try:
+                    self.client.files.delete(file_id)
+                except Exception:
+                    pass  # Best-effort cleanup
