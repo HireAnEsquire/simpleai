@@ -210,6 +210,40 @@ def test_run_prompt_missing_provider_key_raises_settings_error(monkeypatch) -> N
     assert "GROK_API_KEY" in message
 
 
+def test_run_prompt_allows_gemini_enterprise_without_api_key(monkeypatch) -> None:
+    adapter = DummyAdapter()
+    settings = {
+        "defaults": ["gemini"],
+        "providers": {
+            "gemini": {
+                "default_model": "gemini-3.5-flash",
+                "api_key": None,
+                "use_enterprise": True,
+                "enterprise_project": "test-project",
+                "enterprise_location": "us-central1",
+            }
+        },
+        "logging": {"enabled": False},
+    }
+    seen_provider_settings: dict[str, Any] = {}
+
+    monkeypatch.setattr("simpleai.api.load_settings", lambda settings_file=None: settings)
+
+    def fake_get_adapter(provider: str, provider_settings: dict[str, Any]) -> DummyAdapter:
+        seen_provider_settings.update(provider_settings)
+        return adapter
+
+    monkeypatch.setattr("simpleai.api.get_adapter", fake_get_adapter)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    result = run_prompt("hello", model="gemini")
+
+    assert result == '{"value": 7}'
+    assert seen_provider_settings["api_key"] is None
+    assert seen_provider_settings["use_enterprise"] is True
+
+
 def test_run_prompt_missing_provider_key_is_catchable_as_simpleai_exception(monkeypatch) -> None:
     settings = {
         "defaults": ["grok"],

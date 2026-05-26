@@ -11,7 +11,13 @@ from pydantic import BaseModel, Field
 
 from .adapters import ADAPTER_CLASSES
 from .api import run_prompt
-from .settings import canonical_provider_name, expected_provider_env_vars, get_provider_api_key, load_settings
+from .settings import (
+    canonical_provider_name,
+    expected_provider_env_vars,
+    get_provider_api_key,
+    load_settings,
+    provider_requires_api_key,
+)
 
 PROMPT = (
     "Parse the attached resume to return latest 3 job experiences, "
@@ -174,7 +180,7 @@ def run_provider_matrix(
         emit(f"File handling: {file_handling}")
 
         api_key = get_provider_api_key(settings, target.settings_provider)
-        if not api_key:
+        if provider_requires_api_key(settings, target.settings_provider) and not api_key:
             envs = expected_provider_env_vars(target.settings_provider)
             msg = (
                 f"API key not set. Configure providers.{target.settings_provider}.api_key "

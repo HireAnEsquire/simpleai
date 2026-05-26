@@ -46,6 +46,7 @@ from simpleai.adapters.base import BaseAdapter
 from simpleai.adapters.reasoning import ReasoningLevel, build_gemini_reasoning_config_kwargs
 from simpleai.exceptions import FileExtractionError, ProviderError
 from simpleai.files import extract_text_from_files
+from simpleai.settings import gemini_uses_enterprise_auth
 from simpleai.types import AdapterResponse, Citation, PromptInput
 
 logger = logging.getLogger(__name__)
@@ -133,18 +134,7 @@ def _gemini_provider_setting(
 
 
 def _gemini_use_enterprise(provider_settings: dict[str, Any]) -> bool:
-    raw = _gemini_provider_setting(
-        provider_settings,
-        "use_enterprise",
-        legacy_key="use_vertexai",
-        env_var="GEMINI_USE_ENTERPRISE",
-        legacy_env_var="GEMINI_USE_VERTEXAI",
-    )
-    if raw is None:
-        return False
-    if isinstance(raw, bool):
-        return raw
-    return str(raw).lower() in ("true", "1", "yes")
+    return gemini_uses_enterprise_auth(provider_settings)
 
 
 class GeminiAdapter(BaseAdapter):
@@ -170,6 +160,8 @@ class GeminiAdapter(BaseAdapter):
                 env_var="GEMINI_ENTERPRISE_PROJECT",
                 legacy_env_var="GEMINI_VERTEXAI_PROJECT",
             )
+            if project is None:
+                project = os.getenv("GOOGLE_CLOUD_PROJECT")
             location = _gemini_provider_setting(
                 provider_settings,
                 "enterprise_location",
@@ -177,6 +169,8 @@ class GeminiAdapter(BaseAdapter):
                 env_var="GEMINI_ENTERPRISE_LOCATION",
                 legacy_env_var="GEMINI_VERTEXAI_LOCATION",
             )
+            if location is None:
+                location = os.getenv("GOOGLE_CLOUD_LOCATION")
             self.client = genai.Client(enterprise=True, project=project, location=location)
             self._project = project
         else:

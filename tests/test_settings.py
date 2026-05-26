@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from simpleai.settings import get_default_reasoning_level, get_provider_api_key, load_settings
+from simpleai.settings import (
+    gemini_uses_enterprise_auth,
+    get_default_reasoning_level,
+    get_provider_api_key,
+    load_settings,
+    provider_has_credentials,
+    provider_requires_api_key,
+)
 
 
 def test_load_settings_from_json_file(tmp_path: Path) -> None:
@@ -41,6 +48,7 @@ def test_load_settings_defaults_when_no_sources(tmp_path: Path, monkeypatch) -> 
     assert settings["defaults"] == ["gemini", "openai", "claude", "grok", "perplexity"]
     assert settings["default_reasoning_level"] is None
     assert settings["providers"]["gemini"]["default_model"] == "gemini-3.5-flash"
+    assert settings["providers"]["gemini"]["use_enterprise"] is None
     assert settings["providers"]["openai"]["default_model"] == "gpt-5.5"
     assert settings["providers"]["claude"]["default_model"] == "claude-opus-4-7"
     assert settings["providers"]["grok"]["default_model"] == "grok-4.3"
@@ -97,6 +105,33 @@ def test_get_provider_api_key_supports_grok_alias_env_var(monkeypatch) -> None:
     monkeypatch.setenv("GROK_API_KEY", "grok-test-key")
 
     assert get_provider_api_key(settings, "grok") == "grok-test-key"
+
+
+def test_gemini_enterprise_auth_does_not_require_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_USE_ENTERPRISE", raising=False)
+    settings = {"providers": {"gemini": {"api_key": None, "use_enterprise": True}}}
+
+    assert gemini_uses_enterprise_auth(settings["providers"]["gemini"]) is True
+    assert provider_requires_api_key(settings, "gemini") is False
+    assert provider_has_credentials(settings, "gemini") is True
+
+
+def test_gemini_enterprise_auth_can_be_enabled_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_USE_ENTERPRISE", "true")
+    settings = {"providers": {"gemini": {"api_key": None, "use_enterprise": None}}}
+
+    assert provider_requires_api_key(settings, "gemini") is False
+    assert provider_has_credentials(settings, "gemini") is True
+
+
+def test_gemini_enterprise_auth_supports_google_genai_env(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_USE_ENTERPRISE", raising=False)
+    monkeypatch.delenv("GEMINI_USE_VERTEXAI", raising=False)
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    settings = {"providers": {"gemini": {"api_key": None, "use_enterprise": None}}}
+
+    assert provider_requires_api_key(settings, "gemini") is False
+    assert provider_has_credentials(settings, "gemini") is True
 
 
 def test_default_reasoning_level_empty_uses_provider_defaults() -> None:

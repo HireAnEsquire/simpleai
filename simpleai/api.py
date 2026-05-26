@@ -20,6 +20,7 @@ from .settings import (
     get_default_reasoning_level,
     get_provider_api_key,
     load_settings,
+    provider_requires_api_key,
 )
 from .types import PromptInput
 from .citations import normalize_citations
@@ -232,11 +233,12 @@ def run_prompt(
         if not isinstance(provider_settings, dict):
             raise SettingsError(f"Invalid settings for provider '{provider}'.")
 
-        if not provider_settings.get("api_key"):
+        requires_api_key = provider_requires_api_key(settings, provider)
+        if requires_api_key and not provider_settings.get("api_key"):
             provider_settings = dict(provider_settings)
             provider_settings["api_key"] = get_provider_api_key(settings, provider)
 
-        if not provider_settings.get("api_key"):
+        if requires_api_key and not provider_settings.get("api_key"):
             env_vars = expected_provider_env_vars(provider)
             env_hint = ", ".join(env_vars) if env_vars else "provider-specific env var"
             raise SettingsError(

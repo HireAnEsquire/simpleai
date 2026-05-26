@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .exceptions import ModelResolutionError
-from .settings import canonical_provider_name, get_provider_api_key
+from .settings import canonical_provider_name, provider_has_credentials
 
 # Known model IDs from official provider model docs as of 2026-05-26.
 MODEL_PROVIDER_MAP: dict[str, str] = {
@@ -154,13 +154,6 @@ def _default_model(settings: dict[str, Any], provider: str) -> str:
         return str(model)
     raise ModelResolutionError(f"No default model configured for provider '{provider}'.")
 
-
-
-def _provider_has_credentials(settings: dict[str, Any], provider: str) -> bool:
-    return bool(get_provider_api_key(settings, provider))
-
-
-
 def select_default_provider(settings: dict[str, Any]) -> str:
     """Select first configured default provider with credentials."""
 
@@ -177,7 +170,7 @@ def select_default_provider(settings: dict[str, Any]) -> str:
             canonical_defaults.append(canonical)
 
     for provider in canonical_defaults:
-        if _provider_has_credentials(settings, provider):
+        if provider_has_credentials(settings, provider):
             return provider
 
     if canonical_defaults:

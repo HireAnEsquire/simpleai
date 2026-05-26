@@ -49,3 +49,22 @@ def test_default_provider_prefers_credentials() -> None:
     provider, model = resolve_provider_and_model(BASE_SETTINGS, None)
     assert provider == "openai"
     assert model == "gpt-5.5"
+
+
+def test_default_provider_allows_gemini_enterprise_without_api_key() -> None:
+    settings = {
+        **BASE_SETTINGS,
+        "providers": {
+            **BASE_SETTINGS["providers"],
+            "gemini": {
+                "default_model": "gemini-3.5-flash",
+                "api_key": None,
+                "use_enterprise": True,
+            },
+        },
+    }
+
+    provider, model = resolve_provider_and_model(settings, None)
+
+    assert provider == "gemini"
+    assert model == "gemini-3.5-flash"

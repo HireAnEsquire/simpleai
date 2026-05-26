@@ -26,7 +26,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "api_key": None,
             "default_model": "gemini-3.5-flash",
             "max_output_tokens": 65536,
-            "use_enterprise": False,
+            "use_enterprise": None,
             "enterprise_project": None,
             "enterprise_location": None,
             "enterprise_gcs_bucket": None,
@@ -67,6 +67,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "source_alias_by_domain": {},
     },
 }
+
+_TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+_FALSE_VALUES = {"false", "0", "no", "n", "off"}
 
 PROVIDER_ENV_VARS: dict[str, tuple[str, ...]] = {
     "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
@@ -255,6 +258,59 @@ def get_provider_api_key(settings: dict[str, Any], provider: str) -> str | None:
             return value
 
     return None
+
+
+def _coerce_optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in _TRUE_VALUES:
+            return True
+        if lowered in _FALSE_VALUES:
+            return False
+    return bool(value)
+
+
+def gemini_uses_enterprise_auth(provider_config: dict[str, Any]) -> bool:
+    """Return whether Gemini should use GCP/Vertex authentication instead of an API key."""
+
+    raw = None
+    for key in ("use_enterprise", "use_vertexai"):
+        value = provider_config.get(key)
+        if value is not None:
+            raw = value
+            break
+
+    if raw is None:
+        raw = os.getenv("GEMINI_USE_ENTERPRISE")
+    if raw is None:
+        raw = os.getenv("GEMINI_USE_VERTEXAI")
+    if raw is None:
+        raw = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+
+    return bool(_coerce_optional_bool(raw))
+
+
+def provider_requires_api_key(settings: dict[str, Any], provider: str) -> bool:
+    """Return whether SimpleAI should require an API key before adapter construction."""
+
+    provider_config = settings.get("providers", {}).get(provider, {})
+    if provider == "gemini" and isinstance(provider_config, dict):
+        return not gemini_uses_enterprise_auth(provider_config)
+    return True
+
+
+def provider_has_credentials(settings: dict[str, Any], provider: str) -> bool:
+    """Return whether the provider has enough configured auth to be selected by default."""
+
+    if not provider_requires_api_key(settings, provider):
+        return True
+    return bool(get_provider_api_key(settings, provider))
 
 
 def expected_provider_env_vars(provider: str) -> tuple[str, ...]:

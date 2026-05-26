@@ -89,6 +89,14 @@ GEMINI_ENTERPRISE_GCS_PREFIX=simpleai-uploads
 GEMINI_ENTERPRISE_GCS_CLEANUP=always
 ```
 
+SimpleAI also accepts the Google GenAI SDK environment names for the core switch/project/location:
+
+```env
+GOOGLE_GENAI_USE_VERTEXAI=true
+GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id
+GOOGLE_CLOUD_LOCATION=us-central1
+```
+
 **Via Django `settings.py` / `ai_settings.json`:**
 ```json
 {

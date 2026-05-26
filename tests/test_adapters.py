@@ -563,6 +563,17 @@ def test_gemini_adapter_legacy_vertexai_settings_still_work() -> None:
     assert adapter._project == "legacy-project"
 
 
+def test_gemini_adapter_supports_google_genai_vertex_env(monkeypatch) -> None:
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "env-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    adapter = GeminiAdapter({"use_enterprise": None})
+
+    assert adapter._use_enterprise is True
+    assert adapter._project == "env-project"
+
+
 def test_gemini_adapter_vertexai_files_fallback_to_extracted_text(tmp_path: Path) -> None:
     upload_file = tmp_path / "data.txt"
     upload_file.write_text("resume text", encoding="utf-8")

@@ -101,6 +101,52 @@ def test_run_provider_matrix_requires_citations(monkeypatch, tmp_path: Path) -> 
 
 
 
+def test_run_provider_matrix_runs_gemini_enterprise_without_api_key(monkeypatch, tmp_path: Path) -> None:
+    sample_file = tmp_path / "resume.pdf"
+    sample_file.write_bytes(b"%PDF-1.4\n")
+
+    monkeypatch.setattr(
+        "simpleai.provider_smoke.load_settings",
+        lambda settings_file=None: {
+            "providers": {
+                "gemini": {
+                    "api_key": None,
+                    "use_enterprise": True,
+                    "default_model": "gemini-3.5-flash",
+                }
+            }
+        },
+    )
+    monkeypatch.setattr("simpleai.provider_smoke.get_provider_api_key", lambda settings, provider: None)
+    monkeypatch.setattr(
+        "simpleai.provider_smoke.run_prompt",
+        lambda prompt, **kwargs: (
+            JobHistory(
+                latest_job_experiences=[
+                    JobExperience(
+                        company_name="Example",
+                        role_title="Engineer",
+                        start_date="2020",
+                        end_date="2022",
+                    )
+                ]
+            ),
+            [{"url": "https://example.com"}],
+        ),
+    )
+
+    results = run_provider_matrix(
+        file_path=sample_file,
+        providers=["gemini"],
+        emit=lambda _: None,
+        use_color=False,
+    )
+
+    assert results[0].display_name == "Gemini"
+    assert results[0].status == "success"
+
+
+
 def test_resolve_sample_file_path_missing_falls_back_to_bundled_sample(tmp_path: Path) -> None:
     resolved = resolve_sample_file_path(tmp_path / "missing.pdf")
     assert resolved.exists()
