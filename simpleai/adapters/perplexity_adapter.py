@@ -56,6 +56,7 @@ class PerplexityAdapter(BaseAdapter):
             or os.getenv("PPLX_API_KEY")
         )
         self.client = Perplexity(api_key=api_key)
+        self._skip_citation_followup = bool(provider_settings.get("skip_citation_followup", False))
 
     def _build_input(self, prompt: PromptInput) -> str | list[dict[str, Any]]:
         if isinstance(prompt, str):
@@ -233,6 +234,121 @@ class PerplexityAdapter(BaseAdapter):
 
         return citations, marker_mapping
 
+    def _extract_structured_output_search_citations(self, response_dict: dict[str, Any]) -> list[Citation]:
+        """Return search tool results when structured JSON output omits inline markers."""
+
+        citations: list[Citation] = []
+        seen_keys: dict[tuple[Any, ...], int] = {}
+
+        def append_citation(
+            *,
+            url: str | None,
+            title: str | None,
+            source: str | None,
+            snippet: str | None = None,
+            raw: dict[str, Any],
+        ) -> None:
+            if not url and not title and not source:
+                return
+            source_label = self._normalize_source_label(url=url, title=title, source=source)
+            key = (url, title, source_label, snippet)
+            if key in seen_keys:
+                return
+            citations.append(
+                Citation(
+                    provider=self.provider_name,
+                    url=url,
+                    title=title,
+                    source=source_label,
+                    snippet=snippet,
+                    raw=raw,
+                )
+            )
+            seen_keys[key] = len(citations)
+
+        for output_item in response_dict.get("output", []):
+            if not isinstance(output_item, dict):
+                continue
+            output_type = output_item.get("type")
+            if output_type == "search_results":
+                for result in output_item.get("results") or []:
+                    if not isinstance(result, dict):
+                        continue
+                    append_citation(
+                        url=result.get("url"),
+                        title=result.get("title"),
+                        source=result.get("source"),
+                        snippet=result.get("snippet"),
+                        raw={"search_result": result},
+                    )
+            elif output_type == "web_search_call":
+                for src in (output_item.get("action") or {}).get("sources") or []:
+                    if not isinstance(src, dict):
+                        continue
+                    append_citation(
+                        url=src.get("url"),
+                        title=src.get("title"),
+                        source=src.get("type") or src.get("source"),
+                        snippet=None,
+                        raw=src,
+                    )
+            elif output_type == "fetch_url_results":
+                for index, result in enumerate(output_item.get("contents") or [], start=1):
+                    if not isinstance(result, dict):
+                        continue
+                    append_citation(
+                        url=result.get("url"),
+                        title=result.get("title"),
+                        source=None,
+                        snippet=result.get("snippet"),
+                        raw={"fetch_url_result": result, "index": index},
+                    )
+
+        return citations
+
+    def _collect_citations_followup(
+        self,
+        *,
+        model: str,
+        text: str,
+        target: dict[str, str],
+        adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None,
+    ) -> list[Citation]:
+        preview = text.strip()[:4000]
+        if not preview:
+            return []
+
+        followup_prompt = (
+            "Find web citations supporting this structured answer. "
+            "Ensure cited URLs are publicly accessible. Prefer official sources and include "
+            "company homepages when relevant.\n\n"
+            f"Structured answer:\n{preview}"
+        )
+        payload: dict[str, Any] = {
+            "input": followup_prompt,
+            **target,
+        }
+        if "model" in target:
+            payload["tools"] = [{"type": "web_search"}]
+
+        merge_reasoning_payload(
+            payload,
+            build_perplexity_reasoning_payload(reasoning_level, target=target),
+        )
+        if adapter_options:
+            passthrough = {
+                key: value for key, value in adapter_options.items() if key != "response_format"
+            }
+            payload.update(passthrough)
+
+        response = self.client.responses.create(**payload)
+        response_dict = response.model_dump(mode="json") if hasattr(response, "model_dump") else {}
+        citations, _ = self._extract_citations(response_dict)
+        if not citations:
+            citations = self._extract_structured_output_search_citations(response_dict)
+        return citations
+
     def _extract_citation_references(self, text: str) -> list[tuple[str, str | None, int]]:
         references: list[tuple[str, str | None, int]] = []
         if not text:
@@ -351,8 +467,26 @@ class PerplexityAdapter(BaseAdapter):
                 text = "".join(chunks)
 
             citations = []
+            marker_mapping: dict[tuple[str | None, int], int] = {}
             if return_citations:
                 citations, marker_mapping = self._extract_citations(response_dict)
+                if output_format is not None and not citations:
+                    citations = self._extract_structured_output_search_citations(response_dict)
+                    marker_mapping = {}
+                if (
+                    require_search
+                    and output_format is not None
+                    and not citations
+                    and not self._skip_citation_followup
+                ):
+                    citations = self._collect_citations_followup(
+                        model=model,
+                        text=text,
+                        target=target,
+                        adapter_options=adapter_options,
+                        reasoning_level=reasoning_level,
+                    )
+                    marker_mapping = {}
                 if marker_mapping and text:
                     def rewrite_citations(match: re.Match) -> str:
                         raw_content = match.group(1).strip()

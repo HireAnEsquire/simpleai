@@ -224,6 +224,7 @@ class GeminiAdapter(BaseAdapter):
                 "Invalid enterprise_gcs_cleanup value. Use one of: " "'always', 'on_success', 'never'."
             )
         self._storage_client: Any | None = None
+        self._skip_citation_followup = bool(provider_settings.get("skip_citation_followup", False))
         # google-genai blocks Client.files.upload on the enterprise (GCP) path.
         # Enable true binary files only when a GCS bucket is configured.
         self.supports_binary_files = (not self._use_enterprise) or bool(self._enterprise_gcs_bucket)
@@ -644,6 +645,58 @@ class GeminiAdapter(BaseAdapter):
 
         return citations
 
+    _SEARCH_INSTRUCTION = (
+        "You are an expert researcher. You must ALWAYS use the Google Search tool to ground your answer, "
+        "even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. "
+        "Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list "
+        "of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the "
+        "text that map to the sources you used."
+    )
+
+    def _collect_citations_followup(
+        self,
+        *,
+        client: Any,
+        model: str,
+        text: str,
+        adapter_options: dict[str, Any] | None,
+        reasoning_level: ReasoningLevel | None,
+    ) -> list[Citation]:
+        preview = text.strip()[:4000]
+        if not preview:
+            return []
+
+        followup_prompt = (
+            "Use Google Search to find citations supporting this structured answer. "
+            "Ensure that all cited URLs are publicly accessible. Prefer official sources and include "
+            "company homepages when relevant.\n\n"
+            f"Structured answer:\n{preview}"
+        )
+        config_kwargs: dict[str, Any] = {
+            "tools": [self.types.Tool(google_search=self.types.GoogleSearch())],
+            "system_instruction": self._SEARCH_INSTRUCTION,
+        }
+        reasoning_kwargs = build_gemini_reasoning_config_kwargs(reasoning_level, model=model)
+        thinking_config = reasoning_kwargs.get("thinking_config")
+        if thinking_config is not None:
+            config_kwargs["thinking_config"] = self.types.ThinkingConfig(**thinking_config)
+        if adapter_options:
+            passthrough = {
+                key: value
+                for key, value in adapter_options.items()
+                if key not in {"response_mime_type", "response_schema"}
+            }
+            config_kwargs.update(passthrough)
+
+        config = self.types.GenerateContentConfig(**config_kwargs)
+        response = client.models.generate_content(
+            model=model,
+            contents=followup_prompt,
+            config=config,
+        )
+        response_dict = response.model_dump(mode="json") if hasattr(response, "model_dump") else {}
+        return self._extract_citations(response_dict)
+
     def run(
         self,
         *,
@@ -670,10 +723,7 @@ class GeminiAdapter(BaseAdapter):
 
             if require_search:
                 config_kwargs["tools"] = [self.types.Tool(google_search=self.types.GoogleSearch())]
-                config_kwargs.setdefault(
-                    "system_instruction",
-                    "You are an expert researcher. You must ALWAYS use the Google Search tool to ground your answer, even if you think you already know the answer. Ensure that all cited URLs are publicly accessible. Do not cite links that result in a 404 or 5xx error. You must provide a robust, comprehensive list of citations for all factual claims. When possible, include inline citation markers (e.g. [1]) in the text that map to the sources you used.",
-                )
+                config_kwargs.setdefault("system_instruction", self._SEARCH_INSTRUCTION)
 
             if output_format is not None:
                 config_kwargs["response_mime_type"] = "application/json"
@@ -738,6 +788,19 @@ class GeminiAdapter(BaseAdapter):
                         logger.warning("Gemini hit MAX_TOKENS. The response may be incomplete.")
 
             citations = self._extract_citations(response_dict) if return_citations else []
+            if (
+                return_citations
+                and require_search
+                and not citations
+                and not self._skip_citation_followup
+            ):
+                citations = self._collect_citations_followup(
+                    client=client,
+                    model=model,
+                    text=text,
+                    adapter_options=adapter_options,
+                    reasoning_level=reasoning_level,
+                )
             generation_succeeded = True
             return AdapterResponse(text=text, citations=citations, raw=response_dict)
 

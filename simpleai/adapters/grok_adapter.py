@@ -77,11 +77,88 @@ class GrokAdapter(BaseAdapter):
 
         return messages
 
+    def _citation_key(self, item: Citation) -> tuple[Any, ...]:
+        return (
+            item.url,
+            item.title,
+            item.source,
+            item.citation_id,
+            item.start_index,
+            item.end_index,
+        )
+
+    def _append_citation(
+        self,
+        citations: list[Citation],
+        seen: set[tuple[Any, ...]],
+        *,
+        url: str | None,
+        title: str | None,
+        source: str | None,
+        citation_id: str | None = None,
+        start_index: int | None = None,
+        end_index: int | None = None,
+        raw: dict[str, Any],
+    ) -> None:
+        item = Citation(
+            provider=self.provider_name,
+            citation_id=citation_id,
+            url=url,
+            title=title,
+            source=source,
+            start_index=start_index,
+            end_index=end_index,
+            raw=raw,
+        )
+        key = self._citation_key(item)
+        if key in seen:
+            return
+        seen.add(key)
+        citations.append(item)
+
+    def _extract_citations_from_dict(self, payload: dict[str, Any], citations: list[Citation], seen: set[tuple[Any, ...]]) -> None:
+        for output in payload.get("output", []):
+            if not isinstance(output, dict):
+                continue
+            if output.get("type") == "message":
+                for content in output.get("content", []):
+                    if not isinstance(content, dict):
+                        continue
+                    for annotation in content.get("annotations") or []:
+                        if not isinstance(annotation, dict):
+                            continue
+                        url = annotation.get("url")
+                        title = annotation.get("title")
+                        self._append_citation(
+                            citations,
+                            seen,
+                            url=url,
+                            title=title,
+                            source=url,
+                            start_index=annotation.get("start_index"),
+                            end_index=annotation.get("end_index"),
+                            raw=annotation,
+                        )
+            if output.get("type") == "web_search_call":
+                action = output.get("action") or {}
+                for src in action.get("sources") or []:
+                    if not isinstance(src, dict):
+                        continue
+                    url = src.get("url")
+                    title = src.get("title")
+                    source = src.get("type") or src.get("source") or url
+                    self._append_citation(
+                        citations,
+                        seen,
+                        url=url,
+                        title=title,
+                        source=source,
+                        raw=src,
+                    )
+
     def _extract_citations(self, response: Any) -> list[Citation]:
         citations: list[Citation] = []
-
-        # We intentionally ignore response.citations (which contains all retrieved results)
-        # and only extract inline_citations, which map to actual markers in the generated text.
+        seen: set[tuple[Any, ...]] = set()
 
         # Inline citations contain structured metadata and positions.
         for inline in getattr(response, "inline_citations", []) or []:
@@ -109,18 +186,37 @@ class GrokAdapter(BaseAdapter):
                     "score": inline.collections_citation.score,
                 }
 
-            citations.append(
-                Citation(
-                    provider=self.provider_name,
-                    citation_id=str(getattr(inline, "id", "")) or None,
-                    url=url,
-                    title=title,
-                    source=source,
-                    start_index=getattr(inline, "start_index", None),
-                    end_index=getattr(inline, "end_index", None),
-                    raw=raw,
-                )
+            self._append_citation(
+                citations,
+                seen,
+                url=url,
+                title=title,
+                source=source,
+                citation_id=str(getattr(inline, "id", "")) or None,
+                start_index=getattr(inline, "start_index", None),
+                end_index=getattr(inline, "end_index", None),
+                raw=raw,
             )
+
+        raw_payload = self._raw_response(response)
+        proto = raw_payload.get("proto")
+        if isinstance(proto, dict):
+            self._extract_citations_from_dict(proto, citations, seen)
+
+        # Structured outputs often omit inline markers; xAI still returns all searched URLs.
+        if not citations:
+            for url in getattr(response, "citations", []) or []:
+                if not url:
+                    continue
+                url_text = str(url)
+                self._append_citation(
+                    citations,
+                    seen,
+                    url=url_text,
+                    title=None,
+                    source=url_text,
+                    raw={"source": "response.citations", "url": url_text},
+                )
 
         return citations
 

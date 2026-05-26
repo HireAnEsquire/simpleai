@@ -834,6 +834,159 @@ def test_grok_adapter_payload_and_citations(tmp_path: Path) -> None:
     assert fake_chat.payload["temperature"] == 0.4
 
 
+def test_grok_adapter_falls_back_to_response_citations() -> None:
+    class FakeGrokResponse:
+        def __init__(self) -> None:
+            self.content = '{"value": 1}'
+            self.citations = ["https://grok.example", "https://other.example"]
+            self.inline_citations = []
+
+    class FakeChatSession:
+        def sample(self):
+            return FakeGrokResponse()
+
+    class FakeChatClient:
+        def create(self, **kwargs):
+            return FakeChatSession()
+
+    adapter = GrokAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(chat=FakeChatClient(), files=SimpleNamespace(upload=lambda path: SimpleNamespace(id="f1")))
+    adapter.chat_helpers = SimpleNamespace(
+        system=lambda text: {"role": "system", "parts": [text]},
+        user=lambda *parts: {"role": "user", "parts": list(parts)},
+        file=lambda file_id: f"file:{file_id}",
+    )
+    adapter.xai_tools = SimpleNamespace(web_search=lambda: "web_search_tool")
+
+    response = adapter.run(
+        prompt="hello",
+        model="grok-4.3",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=OutputModel,
+        adapter_options=None,
+    )
+
+    assert len(response.citations) == 2
+    assert response.citations[0].url == "https://grok.example"
+    assert response.citations[1].url == "https://other.example"
+
+
+def test_gemini_adapter_collects_citations_with_followup_when_schema_hides_grounding() -> None:
+    class FakeGeminiResponse:
+        def __init__(self, text: str, grounding: bool) -> None:
+            self.text = text
+            self._grounding = grounding
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            if not self._grounding:
+                return {"candidates": [{"content": {"parts": [{"text": self.text}]}}]}
+            return {
+                "candidates": [
+                    {
+                        "grounding_metadata": {
+                            "grounding_chunks": [
+                                {
+                                    "web": {
+                                        "uri": "https://followup.example",
+                                        "title": "Followup Source",
+                                        "domain": "followup.example",
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    class FakeModels:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_content(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return FakeGeminiResponse('{"value": 1}', grounding=False)
+            return FakeGeminiResponse("", grounding=True)
+
+    fake_models = FakeModels()
+    adapter = GeminiAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(models=fake_models, files=SimpleNamespace(upload=lambda file: file))
+    adapter.types = SimpleNamespace(
+        Tool=lambda **kwargs: kwargs,
+        GoogleSearch=lambda: "google_search",
+        GenerateContentConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+        ThinkingConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+    )
+
+    response = adapter.run(
+        prompt="hello",
+        model="gemini-3.5-flash",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=OutputModel,
+        adapter_options=None,
+    )
+
+    assert response.text == '{"value": 1}'
+    assert any(c.url == "https://followup.example" for c in response.citations)
+    assert fake_models.calls == 2
+
+
+def test_perplexity_adapter_returns_search_results_for_structured_output() -> None:
+    class FakePerplexityResponse:
+        output_text = '{"value": 1}'
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": '{"value": 1}',
+                            }
+                        ],
+                    },
+                    {
+                        "type": "search_results",
+                        "results": [
+                            {
+                                "url": "https://structured.example",
+                                "title": "Structured Source",
+                                "source": "web",
+                                "snippet": "snippet",
+                            }
+                        ],
+                    },
+                ]
+            }
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return FakePerplexityResponse()
+
+    adapter = PerplexityAdapter({"api_key": "test"})
+    adapter.client = SimpleNamespace(responses=FakeResponses())
+
+    response = adapter.run(
+        prompt="hello",
+        model="sonar-deep-research",
+        require_search=True,
+        return_citations=True,
+        files=None,
+        output_format=OutputModel,
+        adapter_options=None,
+    )
+
+    assert len(response.citations) == 1
+    assert response.citations[0].url == "https://structured.example"
+    assert response.citations[0].title == "Structured Source"
+
+
 def test_perplexity_adapter_payload_and_citations() -> None:
     class FakePerplexityResponse:
         output_text = "perplexity answer"

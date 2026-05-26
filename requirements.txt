@@ -1,5 +1,5 @@
 # Until `simpleai` is published to PyPI, install it from GitHub:
-haesimpleai @ git+http://github.com/HireAnEsquire/simpleai.git@0.11
+haesimpleai @ git+http://github.com/HireAnEsquire/simpleai.git@0.12
 
 # Runtime dependencies (required for `run_prompt` and smoke-runner scripts)
 pydantic>=2.13.4,<3.0.0

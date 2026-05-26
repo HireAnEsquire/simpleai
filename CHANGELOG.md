@@ -11,7 +11,12 @@ All notable changes to this project will be documented in this file.
   - Configurable retry count (`max_retries`)
   - Option to skip secondary citation API call (`skip_citation_followup`)
 
-### Changed
+### Fixed
+- Citation reliability for latest default models when structured output is requested:
+  - Grok: fall back to `response.citations` and parse `web_search_call` output when inline markers are absent.
+  - Gemini: secondary search pass when JSON schema responses omit grounding metadata.
+  - Perplexity: use search tool results from structured-output responses and secondary search pass when needed.
+
 - Gemini GCP settings renamed from `vertexai_*` / `use_vertexai` to `enterprise_*` / `use_enterprise` (aligned with `google-genai` 2.x). Legacy `vertexai_*` keys and `GEMINI_USE_VERTEXAI` / `GEMINI_VERTEXAI_*` env vars remain supported. Search grounding still uses standard `GoogleSearch`.
 - Require `google-genai` 2.x (`>=2.0.0,<3.0.0`). v2 breaking changes are limited to the Interactions API; `GenerateContent` usage in `GeminiAdapter` is unchanged.
 - Default models updated to latest provider releases (2026-05-26):
