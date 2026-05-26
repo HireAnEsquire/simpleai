@@ -147,7 +147,7 @@ class PerplexityReasoningPayloadTest(unittest.TestCase):
             "high",
             target={"preset": "deep-research"},
         )
-        self.assertEqual(payload, {"reasoning_effort": "high"})
+        self.assertEqual(payload, {"reasoning": {"effort": "high"}})
 
     def test_none_omitted_for_deep_research(self) -> None:
         self.assertEqual(
@@ -166,7 +166,7 @@ class PerplexityReasoningPayloadTest(unittest.TestCase):
             "extra_high",
             target={"preset": "deep-research"},
         )
-        self.assertEqual(payload, {"reasoning_effort": "high"})
+        self.assertEqual(payload, {"reasoning": {"effort": "high"}})
 
 
 def _mock_response() -> MagicMock:
@@ -269,7 +269,7 @@ class AdapterRunReasoningIntegrationTest(unittest.TestCase):
         )
 
         payload = client.responses.create.call_args.kwargs
-        self.assertEqual(payload["reasoning_effort"], "low")
+        self.assertEqual(payload["reasoning"], {"effort": "low"})
         self.assertEqual(payload["preset"], "deep-research")
 
 

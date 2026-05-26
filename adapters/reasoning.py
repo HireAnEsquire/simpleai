@@ -320,7 +320,8 @@ def build_perplexity_reasoning_payload(
         "high": "high",
         "extra_high": "high",
     }
-    return {"reasoning_effort": effort_map[resolved]}
+    # Responses API uses reasoning.effort (not Sonar chat API reasoning_effort).
+    return {"reasoning": {"effort": effort_map[resolved]}}
 
 
 def merge_reasoning_payload(payload: dict[str, Any], reasoning_payload: dict[str, Any]) -> None:
